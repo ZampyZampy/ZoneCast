@@ -368,3 +368,7 @@ sudo systemctl start zonecast
   direct access to this repository (contains `app/`, `deploy/`,
   `requirements.txt`, `Dockerfile`, `docker-compose.yml`,
   `.env.example`, `README.md`).
+
+## License
+
+[MIT](LICENSE)
