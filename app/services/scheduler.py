@@ -28,7 +28,9 @@ _scheduler: AsyncIOScheduler | None = None
 # couple of common extras for "English" since it doesn't map to a single
 # country. Keys are ISO 3166-1 alpha-2 codes the `holidays` package
 # recognizes via holidays.country_holidays(); Schedule.holiday_country
-# stores one of these, defaulting to "IT".
+# stores one of these — holiday filtering itself is opt-in per schedule
+# (see exclude_holidays/holidays_only on the model), so no country is
+# assumed unless a schedule explicitly turns it on.
 HOLIDAY_COUNTRIES = {
     "IT": "Italy", "US": "United States", "GB": "United Kingdom",
     "FR": "France", "DE": "Germany", "ES": "Spain", "JP": "Japan", "CN": "China",
@@ -48,9 +50,15 @@ def get_scheduler() -> AsyncIOScheduler:
 
 
 def _is_holiday(d: date, country_code: str) -> bool:
+    # An unrecognized code (e.g. stale data from before a country was
+    # supported) means "no calendar to check", not "assume Italy" —
+    # holiday filtering is opt-in and country-specific, never a
+    # fallback to any one country.
+    if country_code not in HOLIDAY_COUNTRIES:
+        return False
     calendar = _holiday_calendars.get(country_code)
     if calendar is None:
-        calendar = holidays.country_holidays(country_code if country_code in HOLIDAY_COUNTRIES else "IT")
+        calendar = holidays.country_holidays(country_code)
         _holiday_calendars[country_code] = calendar
     return d in calendar
 

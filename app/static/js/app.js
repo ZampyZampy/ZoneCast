@@ -660,7 +660,7 @@ function resetScheduleForm() {
     document.getElementById('schedule-form').reset();
     document.getElementById('schedule-id').value = '';
     document.querySelectorAll('#schedule-days input').forEach(c => c.checked = ['mon','tue','wed','thu','fri'].includes(c.value));
-    document.getElementById('schedule-holiday-mode').value = 'exclude';
+    document.getElementById('schedule-holiday-mode').value = 'none';
     document.getElementById('schedule-holiday-country').value = 'IT';
     refreshTargetIdOptions('schedule');
 }

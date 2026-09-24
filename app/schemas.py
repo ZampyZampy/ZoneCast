@@ -372,7 +372,7 @@ class ScheduleBase(BaseModel):
     days_of_week: str = "mon,tue,wed,thu,fri"
     start_date: Optional[date] = None
     end_date: Optional[date] = None
-    exclude_holidays: bool = True
+    exclude_holidays: bool = False
     holidays_only: bool = False
     holiday_country: str = "IT"
     enabled: bool = True

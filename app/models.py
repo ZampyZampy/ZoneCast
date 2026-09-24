@@ -212,10 +212,13 @@ class Schedule(Base):
     start_date = Column(Date, nullable=True)
     end_date = Column(Date, nullable=True)
 
-    exclude_holidays = Column(Boolean, default=True)   # skip run on public holidays
+    # Off by default: a new schedule shouldn't silently assume any one
+    # country's calendar — holiday filtering is opt-in per schedule.
+    exclude_holidays = Column(Boolean, default=False)   # skip run on public holidays
     holidays_only = Column(Boolean, default=False)      # run ONLY on public holidays
     # ISO 3166-1 alpha-2 country code for the holiday calendar above —
-    # see services/scheduler.py's HOLIDAY_COUNTRIES for the supported set.
+    # only used once exclude_holidays/holidays_only is turned on — see
+    # services/scheduler.py's HOLIDAY_COUNTRIES for the supported set.
     holiday_country = Column(String(8), nullable=False, default="IT")
 
     enabled = Column(Boolean, default=True, nullable=False)
