@@ -1,6 +1,6 @@
 <p align="center">
-  <img src="logo/ZoneCast-B.svg#gh-light-mode-only" alt="ZoneCast" width="360">
-  <img src="logo/ZoneCast-B-white.svg#gh-dark-mode-only" alt="ZoneCast" width="360">
+  <img src="logo/ZoneCast-black.svg#gh-light-mode-only" alt="ZoneCast" width="360">
+  <img src="logo/ZoneCast-white.svg#gh-dark-mode-only" alt="ZoneCast" width="360">
 </p>
 
 # ZoneCast — PA / intercom system over IP
