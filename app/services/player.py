@@ -41,7 +41,7 @@ def resolve_target(db: Session, target_type: TargetType, target_id: Optional[int
         zone = db.query(Zone).filter(Zone.id == target_id).first()
         if not zone:
             raise TargetResolutionError(f"Zona {target_id} non trovata")
-        return zone.multicast_address, zone.multicast_port, f"Zona: {zone.name}"
+        return zone.multicast_address, zone.multicast_port, zone.name
 
     raise TargetResolutionError("Target non valido")
 
