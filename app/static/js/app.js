@@ -400,7 +400,7 @@ async function loadHistory() {
     }[s] || 'bg-secondary');
     document.getElementById('history-body').innerHTML = rows.map(r => `
         <tr>
-            <td>${new Date(r.started_at).toLocaleTimeString()}</td>
+            <td>${new Date(r.started_at).toLocaleString()}</td>
             <td>${state.media.find(m => m.id === r.media_id)?.original_filename || r.media_id}</td>
             <td>${r.target_label}</td>
             <td class="col-secondary">${r.source === 'schedule' ? '⏰ Schedulata' : `👤 Manuale${r.triggered_by_name ? ' — ' + r.triggered_by_name : ''}`}</td>

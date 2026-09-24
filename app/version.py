@@ -4,7 +4,7 @@ APP_VERSION and add a CHANGELOG entry whenever a user-visible change
 ships — this is the only place either needs updating.
 """
 
-APP_VERSION = "1.5.3"
+APP_VERSION = "1.5.4"
 
 # Newest first. Each entry: version, date (YYYY-MM-DD), list of
 # one-line change descriptions. English, matching the UI's default
@@ -12,6 +12,13 @@ APP_VERSION = "1.5.3"
 # through app/static/js/i18n.js, so non-English viewers see it in
 # English regardless of their selected language.
 CHANGELOG = [
+    {
+        "version": "1.5.4",
+        "date": "2026-09-24",
+        "changes": [
+            "Fixed the playback history table only showing the time of each entry, not the date, making older entries ambiguous",
+        ],
+    },
     {
         "version": "1.5.3",
         "date": "2026-09-24",
