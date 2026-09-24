@@ -1,0 +1,49 @@
+[Unit]
+Description=ZoneCast — PA/filodiffusione management
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=zonecast
+Group=zonecast
+WorkingDirectory=/opt/zonecast
+EnvironmentFile=/opt/zonecast/.env
+ExecStart=/opt/zonecast/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${APP_PORT}
+Restart=on-failure
+RestartSec=3
+
+# Manual clock-set (Sistema > Orario) calls `date -s` directly, and
+# binding APP_PORT below 1024 (e.g. 80) needs CAP_NET_BIND_SERVICE —
+# both granted natively via systemd rather than running as root.
+AmbientCapabilities=CAP_SYS_TIME CAP_NET_BIND_SERVICE
+
+# Hardening — narrower than the Docker default because this unit runs
+# directly on the host rather than inside an already-isolated container.
+#
+# NoNewPrivileges, ProtectSystem=strict and a narrowed
+# CapabilityBoundingSet are all deliberately NOT set here despite being
+# the usual recommendation: the Sistema > Rete/Orario panel escalates
+# through `sudo -n zonecast-netctl.sh` (see services/privileged.py), and
+# all three break that by design —
+#   - NoNewPrivileges blocks sudo's setuid escalation outright
+#     ("sudo: the 'no new privileges' flag is set...")
+#   - ProtectSystem's read-only bind-mounts are inherited by the
+#     sudo-escalated root child too (mount namespaces persist across
+#     exec), so /etc would stay read-only even after fixing the above
+#   - CapabilityBoundingSet caps the sudo-escalated child the same way —
+#     even as uid 0 it only gets the capabilities listed here, and
+#     sudo-rs (Ubuntu 26.04's default) needs CAP_SETUID to switch
+#     between the invoking and target uid, panicking with "could not
+#     restore to saved user id" without it. AmbientCapabilities above
+#     still works fine unconstrained — ambient caps just need to be a
+#     subset of the (now-default/full) bounding set, which they are.
+# The app process itself still can't write outside ReadWritePaths as a
+# non-root user regardless — that's plain Unix file permissions, not
+# something these settings were adding on top of for this app.
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/zonecast/data /opt/zonecast/media /opt/zonecast/backups
+
+[Install]
+WantedBy=multi-user.target

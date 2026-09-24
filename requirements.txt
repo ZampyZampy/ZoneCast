@@ -1,0 +1,23 @@
+fastapi==0.141.1
+uvicorn[standard]==0.30.6
+sqlalchemy==2.0.35
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-multipart==0.0.31
+bcrypt==4.2.0
+cryptography==50.0.0
+pyotp==2.9.0
+qrcode==7.4.2
+itsdangerous==2.2.0
+apscheduler==3.10.4
+alembic==1.13.2
+holidays==0.57
+httpx==0.27.2
+jinja2==3.1.6
+python-dotenv==1.2.3
+
+# `audioop` (used for G.711 encoding) was removed from the stdlib in
+# Python 3.13 (PEP 594). The Docker image pins Python 3.11 so it still
+# has it built-in; this backport keeps a local (non-Docker) run working
+# on newer Python versions too.
+audioop-lts; python_version >= "3.13"

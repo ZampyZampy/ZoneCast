@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.env
+data/*.db
+media/*
+!media/.gitkeep
+.venv/
+venv/
+.claude/
+sounds/
+missing_en_source.txt
