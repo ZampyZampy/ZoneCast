@@ -393,6 +393,12 @@ document.getElementById('play-btn').addEventListener('click', async () => {
     } catch (e) { toast(e.message, 'danger'); }
 });
 
+function playTargetLabel(r) {
+    if (r.target_type === 'all') return t('common.allSpeakers');
+    if (r.target_type === 'zone') return `${t('common.zone')}: ${r.target_label}`;
+    return r.target_label;
+}
+
 async function loadHistory() {
     const rows = await api('/api/playback/history?limit=30');
     const statusBadge = (s) => ({
@@ -402,8 +408,8 @@ async function loadHistory() {
         <tr>
             <td>${new Date(r.started_at).toLocaleString()}</td>
             <td>${state.media.find(m => m.id === r.media_id)?.original_filename || r.media_id}</td>
-            <td>${r.target_label}</td>
-            <td class="col-secondary">${r.source === 'schedule' ? '⏰ Schedulata' : `👤 Manuale${r.triggered_by_name ? ' — ' + r.triggered_by_name : ''}`}</td>
+            <td>${playTargetLabel(r)}</td>
+            <td class="col-secondary">${r.source === 'schedule' ? t('play.sourceScheduled') : `${t('play.sourceManual')}${r.triggered_by_name ? ' — ' + r.triggered_by_name : ''}`}</td>
             <td><span class="badge ${statusBadge(r.status)}">${r.status}</span></td>
             <td>${r.status === 'running' ? `<button class="btn btn-sm btn-outline-danger" onclick="stopPlayback(${r.id})"><i class="bi bi-stop-circle"></i><span class="btn-label"> ${t('action.stop')}</span></button>` : ''}</td>
         </tr>`).join('') || `<tr><td colspan="6" class="text-muted">${t('empty.playbacks')}</td></tr>`;
@@ -814,8 +820,8 @@ async function loadTfaStatus() {
         document.getElementById('tfa-disable-btn').classList.toggle('d-none', !s.enabled);
         document.getElementById('tfa-regen-btn').classList.toggle('d-none', !s.enabled);
         document.getElementById('tfa-status-text').textContent = s.enabled
-            ? `2FA attiva — ${s.remaining_recovery_codes} codici di recupero rimanenti.`
-            : '2FA non attiva su questo account.';
+            ? t('security.statusEnabled', { n: s.remaining_recovery_codes })
+            : t('security.statusDisabled');
     } catch (e) { /* modal not open yet at first load, ignore */ }
     tfaShowView(tfaStatusView);
 }

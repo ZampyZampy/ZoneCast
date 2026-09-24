@@ -359,13 +359,14 @@ sudo systemctl start zonecast
 
 ## 7. Documentation
 
-- [`docs/ZoneCast_Guida_Deploy.pdf`](docs/ZoneCast_Guida_Deploy.pdf) —
-  technical deployment guide for a blank machine (in Italian):
-  requirements, architecture, installation (native/Docker), migration,
-  security, day-to-day operations, common troubleshooting.
-- [`docs/ZoneCast_Manuale_Utente.pdf`](docs/ZoneCast_Manuale_Utente.pdf)
-  — illustrated end-user manual (in Italian), with a screenshot of
-  every dashboard section.
+- Technical deployment guide for a blank machine — requirements,
+  architecture, installation (native/Docker), migration, security,
+  day-to-day operations, common troubleshooting:
+  [English](docs/ZoneCast_Deploy_Guide_en.pdf) /
+  [Italiano](docs/ZoneCast_Guida_Deploy_it.pdf).
+- Illustrated end-user manual, with a screenshot of every dashboard
+  section: [English](docs/ZoneCast_User_Manual_en.pdf) /
+  [Italiano](docs/ZoneCast_Manuale_Utente_it.pdf).
 - [`docs/zonecast_install_kit.tar.gz`](docs/zonecast_install_kit.tar.gz)
   — ready-to-use package for a native install on a machine without
   direct access to this repository (contains `app/`, `deploy/`,

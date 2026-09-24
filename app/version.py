@@ -4,7 +4,7 @@ APP_VERSION and add a CHANGELOG entry whenever a user-visible change
 ships — this is the only place either needs updating.
 """
 
-APP_VERSION = "1.5.4"
+APP_VERSION = "1.5.6"
 
 # Newest first. Each entry: version, date (YYYY-MM-DD), list of
 # one-line change descriptions. English, matching the UI's default
@@ -12,6 +12,20 @@ APP_VERSION = "1.5.4"
 # through app/static/js/i18n.js, so non-English viewers see it in
 # English regardless of their selected language.
 CHANGELOG = [
+    {
+        "version": "1.5.6",
+        "date": "2026-09-24",
+        "changes": [
+            "Fixed the playback history's source (Manual/Scheduled) and zone/all-speakers destination labels always showing in Italian regardless of the selected interface language",
+        ],
+    },
+    {
+        "version": "1.5.5",
+        "date": "2026-09-24",
+        "changes": [
+            "Fixed the 2FA status text in the Security modal always showing in Italian regardless of the selected interface language",
+        ],
+    },
     {
         "version": "1.5.4",
         "date": "2026-09-24",
