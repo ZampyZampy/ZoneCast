@@ -7,5 +7,4 @@ media/*
 .venv/
 venv/
 .claude/
-sounds/
 missing_en_source.txt

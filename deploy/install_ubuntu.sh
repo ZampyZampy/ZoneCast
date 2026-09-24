@@ -46,6 +46,10 @@ rsync -a --delete \
     --exclude 'data' --exclude 'media' --exclude 'backups' --exclude 'venv' \
     "$REPO_DIR"/app "$REPO_DIR"/requirements.txt "$REPO_DIR"/deploy "$INSTALL_DIR/"
 
+if [[ -d "$REPO_DIR/sounds" ]]; then
+    rsync -a "$REPO_DIR"/sounds "$INSTALL_DIR/"
+fi
+
 mkdir -p "$INSTALL_DIR"/data "$INSTALL_DIR"/media "$INSTALL_DIR"/backups
 
 if [[ ! -f "$INSTALL_DIR/.env" ]]; then
@@ -78,6 +82,11 @@ cp "$INSTALL_DIR/deploy/zonecast.service" /etc/systemd/system/zonecast.service
 systemctl daemon-reload
 systemctl enable zonecast
 systemctl restart zonecast
+
+if [[ -d "$INSTALL_DIR/sounds" ]]; then
+    echo "== Suoni di esempio =="
+    (cd "$INSTALL_DIR" && sudo -u "$SERVICE_USER" "$INSTALL_DIR/venv/bin/python" -m app.tools.seed_sample_media) || true
+fi
 
 echo
 echo "Fatto. Stato del servizio:"
