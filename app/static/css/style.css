@@ -1,0 +1,405 @@
+:root {
+    --pa-sidebar-bg: #1f2328;
+    --pa-sidebar-text: #aeb3ba;
+    --pa-sidebar-text-active: #ffffff;
+    --pa-bg: #f2f4f6;
+    --pa-card-bg: #ffffff;
+    --pa-border: #e4e7eb;
+    --pa-text: #1c1f23;
+
+    /* theme (accent) — set inline from the stored color (see
+       login.html/dashboard.html <style> block), these are just the
+       pre-render fallback. Not user-editable from the UI (see
+       theme.js/#theme-select) — only light/dark mode is. */
+    --pa-accent: #464c54;
+    --pa-accent-hover: #363b41;
+    --pa-accent-light: #a7acb3;
+    --pa-accent-rgb: 70, 76, 84;
+}
+
+/* Dark mode: Bootstrap 5.3's own [data-bs-theme="dark"] restyles every
+   Bootstrap component (forms, tables, modals, badges...) automatically;
+   these overrides only cover this file's own custom classes/variables.
+   The sidebar stays the same dark shade in both modes by design (see
+   --pa-sidebar-bg above), so it needs no override here. */
+[data-bs-theme="dark"] {
+    --pa-bg: #14161a;
+    --pa-card-bg: #1f2328;
+    --pa-border: #33383f;
+    --pa-text: #e8eaed;
+}
+
+body {
+    background: var(--pa-bg);
+    color: var(--pa-text);
+}
+
+/* ---------- Login ---------- */
+.login-body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--pa-sidebar-bg), var(--pa-accent-hover));
+}
+
+.login-card {
+    background: var(--pa-card-bg);
+    color: var(--pa-text);
+    padding: 2.5rem;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 360px;
+    box-shadow: 0 20px 60px rgba(0,0,0,.25);
+}
+
+.login-card .btn-primary { width: 100%; }
+
+.login-logo {
+    width: 100%;
+    max-width: 220px;
+    margin: 0 auto 1.5rem;
+    color: var(--pa-text);
+}
+.login-logo svg { display: block; width: 100%; height: auto; }
+
+/* ---------- App shell (sidebar + topbar) ---------- */
+.app-shell {
+    display: flex;
+    min-height: 100vh;
+}
+
+.sidebar {
+    width: 240px;
+    flex-shrink: 0;
+    background: var(--pa-sidebar-bg);
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+}
+
+.sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    padding: 1.1rem 1.1rem;
+    border-bottom: 1px solid rgba(255,255,255,.08);
+}
+
+/* Logo mark is an SVG with fill="currentColor" — always forced white
+   here since the sidebar keeps the same dark background in both light
+   and dark app themes (see --pa-sidebar-bg). */
+.brand-logo {
+    display: inline-block;
+    color: #fff;
+}
+.brand-logo svg { display: block; width: 100%; height: auto; }
+.brand-logo-wide { width: 100%; max-width: 150px; }
+.brand-logo-icon { display: none; width: 32px; }
+
+.sidebar-nav {
+    padding: .75rem .6rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.nav-item {
+    display: flex;
+    align-items: center;
+    gap: .7rem;
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-left: 3px solid transparent;
+    color: var(--pa-sidebar-text);
+    padding: .55rem .7rem;
+    border-radius: 6px;
+    font-size: .92rem;
+    text-align: left;
+    transition: background .12s ease, color .12s ease;
+}
+
+.nav-item i {
+    font-size: 1.05rem;
+    width: 1.2rem;
+    text-align: center;
+}
+
+.nav-item:hover {
+    background: rgba(255,255,255,.06);
+    color: #fff;
+}
+
+.nav-item.active {
+    background: rgba(255,255,255,.08);
+    color: var(--pa-sidebar-text-active);
+    border-left-color: var(--pa-accent-light);
+}
+
+.main-area {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.topbar {
+    background: var(--pa-card-bg);
+    border-bottom: 1px solid var(--pa-border);
+    padding: .85rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.page-title {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--pa-text);
+}
+
+.content-area {
+    padding: 1.5rem;
+}
+
+/* ---------- Buttons / accents (theme-driven) ---------- */
+.btn-primary {
+    --bs-btn-bg: var(--pa-accent);
+    --bs-btn-border-color: var(--pa-accent);
+    --bs-btn-hover-bg: var(--pa-accent-hover);
+    --bs-btn-hover-border-color: var(--pa-accent-hover);
+    --bs-btn-active-bg: var(--pa-accent-hover);
+    --bs-btn-active-border-color: var(--pa-accent-hover);
+    --bs-btn-disabled-bg: var(--pa-accent);
+    --bs-btn-disabled-border-color: var(--pa-accent);
+    --bs-btn-focus-shadow-rgb: var(--pa-accent-rgb);
+}
+
+.btn-outline-primary {
+    --bs-btn-color: var(--pa-accent);
+    --bs-btn-border-color: var(--pa-accent);
+    --bs-btn-hover-bg: var(--pa-accent);
+    --bs-btn-hover-border-color: var(--pa-accent);
+    --bs-btn-active-bg: var(--pa-accent);
+    --bs-btn-active-border-color: var(--pa-accent);
+    --bs-btn-focus-shadow-rgb: var(--pa-accent-rgb);
+}
+
+.badge.bg-primary {
+    background-color: var(--pa-accent) !important;
+}
+
+a, .btn-link {
+    color: var(--pa-accent);
+}
+
+.status-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    margin-right: 6px;
+}
+.status-online { background: #22c55e; }
+.status-offline { background: #ef4444; }
+.status-unknown { background: #9ca3af; }
+
+.card-section {
+    background: var(--pa-card-bg);
+    border-radius: 10px;
+    border: 1px solid var(--pa-border);
+    box-shadow: 0 1px 3px rgba(0,0,0,.04);
+}
+
+.section-icon {
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    background: rgba(var(--pa-accent-rgb), .12);
+    color: var(--pa-accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+}
+
+.badge-target {
+    font-size: .75rem;
+}
+
+.table-actions button, .table-actions a {
+    margin-right: 4px;
+}
+
+th[data-sort] {
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+}
+th[data-sort]:hover {
+    color: var(--pa-accent);
+}
+th[data-sort] .sort-indicator {
+    font-size: .7em;
+    opacity: .7;
+}
+
+.form-control-color {
+    width: 3.5rem;
+    height: 2.5rem;
+    padding: .25rem;
+}
+
+#toast-container {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 2000;
+}
+
+/* ---------- Settings (Sistema tab): 2-column card grid on wide screens
+   instead of one narrow stacked column with empty space to the right ---------- */
+.settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
+    gap: 1.5rem;
+    align-items: start;
+}
+
+.nav-section-divider {
+    border-top: 1px solid rgba(255,255,255,.08);
+    margin: .6rem .7rem;
+}
+
+/* Bottom slots in the sidebar drawer where #topbar-prefs (language/theme)
+   and #account-actions (Password/Security/Log out) get relocated to on
+   mobile — see app.js's placePrefs()/placeAccountActions(). Both use
+   this class; margin-top:auto on the first one pushes the whole pair to
+   the bottom of the sidebar's flex column (auto margins on later
+   siblings would have no extra space left to absorb). Empty
+   (and invisible) on desktop, where these stay in the topbar instead. */
+.sidebar-account-slot {
+    padding: .75rem .8rem;
+}
+.sidebar-account-slot:empty { padding: 0; }
+#sidebar-prefs-slot { margin-top: auto; }
+.sidebar-account-slot #account-actions,
+.sidebar-account-slot #topbar-prefs {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 6px;
+    border-top: 1px solid rgba(255,255,255,.08);
+    padding-top: .75rem;
+}
+.sidebar-account-slot #topbar-prefs .form-select { width: 100% !important; margin: 0 !important; }
+.sidebar-account-slot #account-actions .btn {
+    width: 100%;
+    text-align: left;
+}
+
+/* ---------- Hamburger toggle (mobile only) ---------- */
+.hamburger-btn { display: none; }
+
+.sidebar-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.45);
+    z-index: 1040;
+}
+.sidebar-backdrop.show { display: block; }
+
+/* Medium screens: icon-only sidebar (existing behavior kept for tablets) */
+@media (max-width: 991.98px) and (min-width: 768px) {
+    .sidebar { width: 72px; }
+    .nav-item span { display: none; }
+    .brand-logo-wide { display: none; }
+    .brand-logo-icon { display: block; }
+    .sidebar-brand { justify-content: center; padding: 1rem .5rem; }
+    .nav-item { justify-content: center; }
+}
+
+/* Narrow/mobile screens: off-canvas drawer sidebar + hamburger toggle */
+@media (max-width: 767.98px) {
+    .hamburger-btn { display: inline-flex; }
+
+    .sidebar {
+        position: fixed;
+        left: 0;
+        top: 0;
+        width: 240px;
+        transform: translateX(-100%);
+        transition: transform .22s ease;
+        z-index: 1050;
+    }
+    .sidebar.mobile-open { transform: translateX(0); }
+    .nav-item span { display: inline; }
+    .brand-logo-wide { display: block; }
+    .brand-logo-icon { display: none; }
+    .sidebar-brand { justify-content: flex-start; padding: 1.1rem 1.1rem; }
+    .nav-item { justify-content: flex-start; }
+
+    .topbar {
+        flex-wrap: wrap;
+        row-gap: .5rem;
+        padding: .7rem 1rem;
+    }
+    .topbar .d-flex.align-items-center { flex-wrap: wrap; row-gap: .4rem; }
+    #current-user { display: none; }
+
+    .content-area { padding: 1rem; }
+    .settings-grid { grid-template-columns: 1fr; gap: 1rem; }
+
+    /* Tables: drop secondary columns (marked .col-secondary in both the
+       <th> and matching <td>s), force the table to fit the available
+       width instead of growing to fit unwrapped content (table-layout:
+       fixed + word-break lets long values like IPs or "Applica ora"
+       wrap onto a second line instead of pushing the table wider), and
+       stack action buttons one per line instead of side by side. This
+       combination is what actually eliminates the horizontal finger-
+       scrolling — column-hiding or button-stacking alone still left
+       tables like Altoparlanti (6 action buttons) too wide. */
+    /* auto (not fixed) layout: lets the browser give each column at
+       least its longest unbreakable word's width (e.g. "Destinazione"
+       or an IP address) before wrapping anything — table-layout:fixed
+       divides width equally regardless of content, which squeezed
+       single-word headers like "Destinazione" into a column so narrow
+       it wrapped one letter per line. width:100% still caps the whole
+       table at the available space, so columns compress proportionally
+       instead of forcing horizontal scroll. */
+    .col-secondary { display: none; }
+    /* Toolbar rows (filters, search, action buttons above a table) use
+       .d-flex without wrap since on desktop they fit one line — on
+       mobile that pushed buttons off-screen and squeezed fixed-width
+       inputs (search box, retention-days field) down to a sliver,
+       wrapping their own labels letter-by-letter. Let every such row
+       wrap, and let fixed pixel widths shrink instead of forcing
+       overflow. */
+    .content-area .d-flex { flex-wrap: wrap; row-gap: .4rem; }
+    #logs-search { width: 100% !important; max-width: none; }
+    #logs-retention-days { width: 70px !important; }
+    .table-responsive table { width: 100%; font-size: .8rem; }
+    .table-responsive td, .table-responsive th { overflow-wrap: break-word; padding: .35rem .3rem; }
+    .badge { font-size: .7em; }
+    .status-dot-label { display: none; }
+    /* Icon-only action buttons on mobile (text labels hidden via
+       .btn-label) laid out as a compact wrapping row — this is what
+       actually keeps the actions column narrow; stacked full-text
+       buttons ("Modifica"/"Elimina"/...) were still wide enough on
+       their own to force horizontal scrolling even one per line. */
+    .table-actions { white-space: normal; display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+    .table-actions .btn, .table-actions a.btn {
+        width: auto;
+        margin: 0 !important;
+        padding: .3rem .45rem;
+    }
+    .table-actions .btn-label { display: none; }
+}
