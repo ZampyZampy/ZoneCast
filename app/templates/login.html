@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ app_name }} — Login</title>
+    <link rel="icon" type="image/svg+xml" href="/static/img/logo-icon.svg">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/style.css?v={{ asset_version }}" rel="stylesheet">
+    <style>
+        :root {
+            --pa-accent: {{ theme.accent }};
+            --pa-accent-hover: {{ theme.accent_hover }};
+            --pa-accent-light: {{ theme.accent_light }};
+            --pa-accent-rgb: {{ theme.accent_rgb }};
+        }
+    </style>
+    <script>
+        (function () {
+            try {
+                var pref = localStorage.getItem('zc_theme_pref');
+                if (pref === 'dark') document.documentElement.setAttribute('data-bs-theme', 'dark');
+            } catch (e) { /* private mode — theme.js will still apply it */ }
+        })();
+    </script>
+</head>
+<body class="login-body">
+    <div class="login-card">
+        <div class="d-flex gap-2 mb-3">
+            <select class="form-select form-select-sm" id="language-select">
+                <option value="en">English</option>
+                <option value="it">Italiano</option>
+                <option value="fr">Français</option>
+                <option value="de">Deutsch</option>
+                <option value="es">Español</option>
+                <option value="ja">日本語</option>
+                <option value="zh">简体中文</option>
+            </select>
+            <select class="form-select form-select-sm" id="theme-select" style="max-width: 90px;">
+                <option value="light" data-i18n="login.themeLight">Light</option>
+                <option value="dark" data-i18n="login.themeDark">Dark</option>
+                <option value="auto" data-i18n="login.themeAuto">Auto</option>
+            </select>
+        </div>
+        <div class="login-logo">{% include "svg/logo-wide.svg" %}</div>
+        <form id="login-form">
+            <div class="mb-3">
+                <label class="form-label" data-i18n="login.username">Username</label>
+                <input type="text" class="form-control" id="username" required autofocus>
+            </div>
+            <div class="mb-3">
+                <label class="form-label" data-i18n="topbar.password">Password</label>
+                <input type="password" class="form-control" id="password" required>
+            </div>
+            <div class="alert alert-danger py-2 d-none" id="login-error"></div>
+            <button type="submit" class="btn btn-primary w-100" id="login-submit" data-i18n="login.signIn">Sign in</button>
+        </form>
+        <form id="twofa-form" class="d-none">
+            <p class="small text-muted mb-3" data-i18n="login.twofaHelp">Enter the 6-digit code from your authenticator app, or a recovery code.</p>
+            <div class="mb-3">
+                <label class="form-label" data-i18n="login.code">Code</label>
+                <input type="text" class="form-control" id="twofa-code" inputmode="numeric" autocomplete="one-time-code" required autofocus>
+            </div>
+            <div class="alert alert-danger py-2 d-none" id="twofa-error"></div>
+            <button type="submit" class="btn btn-primary w-100" data-i18n="login.verify">Verify</button>
+            <button type="button" class="btn btn-link w-100 mt-1" id="twofa-back" data-i18n="login.back">Back</button>
+        </form>
+    </div>
+    <script src="/static/js/i18n.js?v={{ asset_version }}"></script>
+    <script src="/static/js/theme.js?v={{ asset_version }}"></script>
+    <script>
+        const loginForm = document.getElementById('login-form');
+        const twofaForm = document.getElementById('twofa-form');
+
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errBox = document.getElementById('login-error');
+            errBox.classList.add('d-none');
+            const res = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    username: document.getElementById('username').value,
+                    password: document.getElementById('password').value,
+                })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.requires_2fa) {
+                loginForm.classList.add('d-none');
+                twofaForm.classList.remove('d-none');
+                document.getElementById('twofa-code').focus();
+            } else if (res.ok) {
+                window.location.href = '/';
+            } else {
+                errBox.textContent = data.detail || t('login.error');
+                errBox.classList.remove('d-none');
+            }
+        });
+
+        twofaForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errBox = document.getElementById('twofa-error');
+            errBox.classList.add('d-none');
+            const res = await fetch('/api/auth/login/2fa', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({code: document.getElementById('twofa-code').value})
+            });
+            if (res.ok) {
+                window.location.href = '/';
+            } else {
+                const data = await res.json().catch(() => ({}));
+                errBox.textContent = data.detail || t('login.invalidCode');
+                errBox.classList.remove('d-none');
+            }
+        });
+
+        document.getElementById('twofa-back').addEventListener('click', () => {
+            twofaForm.classList.add('d-none');
+            loginForm.classList.remove('d-none');
+            document.getElementById('password').value = '';
+        });
+    </script>
+</body>
+</html>

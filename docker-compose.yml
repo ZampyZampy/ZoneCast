@@ -1,0 +1,68 @@
+# IMPORTANT — multicast networking:
+# The RTP paging stream is sent as real IP multicast on the LAN where the
+# Fanvil speakers live. Docker's default bridge network NATs/isolates
+# container traffic and does NOT reliably deliver multicast to the
+# physical LAN. `network_mode: host` gives the container the host's real
+# network stack, which is the simplest reliable setup — but it only
+# works on Linux.
+#
+#   - Linux host  -> keep `network_mode: host` below (recommended).
+#   - Windows host -> Docker Desktop cannot do host networking. Either:
+#       (a) run the app directly on Windows with a venv (see README), or
+#       (b) run Docker Desktop's WSL2 engine and attach the container to
+#           a macvlan network bound to the physical adapter so it gets a
+#           real LAN IP (see README "Windows deployment").
+#     The bridge/port-mapping variant below is fine for developing the
+#     web UI, but audio will NOT reach the speakers until multicast can
+#     egress onto the real LAN, and the NTP/clock feature (see below)
+#     needs a Linux host with systemd regardless.
+#
+# IMPORTANT — clock management (Settings tab):
+# Manual time set uses the CAP_SYS_TIME capability to call `date -s`
+# directly (a plain kernel syscall — since the container shares the
+# host's clock under network_mode: host, this changes the HOST's clock
+# too, there is no separate "container clock" to isolate it from).
+# NTP status/servers are READ-ONLY, sourced from files
+# (systemd-timesyncd's sync marker and its config file) rather than
+# D-Bus: Docker's default AppArmor profile denies D-Bus method calls
+# from containers, and disabling that confinement (or authoring a
+# custom AppArmor profile) was judged not worth it just to expose an
+# NTP on/off toggle — enable/disable NTP or change servers on the host
+# directly (`sudo timedatectl set-ntp ...`) if needed.
+# Requires a Linux host using systemd-timesyncd (Ubuntu's default).
+# Note: /etc/localtime is captured at container START time — if you
+# change the HOST's timezone later (`sudo timedatectl set-timezone ...`),
+# run `docker compose up -d --force-recreate` once to pick it up.
+
+services:
+  zonecast:
+    build: .
+    container_name: zonecast
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - SYS_TIME
+      - NET_BIND_SERVICE   # only needed if APP_PORT in .env is below 1024 (e.g. 80)
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./media:/app/media
+      - ./backups:/app/backups
+      - /etc/localtime:/etc/localtime:ro
+      - /run/systemd:/run/systemd:ro
+      - /etc/systemd/timesyncd.conf:/etc/systemd/timesyncd.conf:ro
+
+  # ---- Windows / bridge-network fallback (web UI only, no multicast, no NTP control) ----
+  # zonecast:
+  #   build: .
+  #   container_name: zonecast
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8000:8000"
+  #   env_file:
+  #     - .env
+  #   volumes:
+  #     - ./data:/app/data
+  #     - ./media:/app/media
+  #     - ./backups:/app/backups
