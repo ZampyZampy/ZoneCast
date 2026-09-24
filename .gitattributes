@@ -1,0 +1,16 @@
+# Normalize everything to LF in the repository; Git still converts to
+# CRLF on checkout for contributors who have core.autocrlf=true, but
+# the stored blobs (and anyone checking out on Linux — e.g. cloning
+# straight onto the deploy target) always get LF.
+* text=auto eol=lf
+
+# Shell scripts specifically must stay LF no matter what — a CRLF
+# shebang line breaks `bash script.sh` outright on Linux.
+*.sh text eol=lf
+
+# Binary assets: never touch line endings.
+*.png binary
+*.wav binary
+*.pdf binary
+*.tar.gz binary
+*.ico binary

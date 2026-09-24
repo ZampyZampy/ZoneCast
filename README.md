@@ -5,6 +5,9 @@
 
 # ZoneCast — PA / intercom system over IP
 
+[![Tests](https://github.com/ZampyZampy/ZoneCast/actions/workflows/tests.yml/badge.svg)](https://github.com/ZampyZampy/ZoneCast/actions/workflows/tests.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Web application for managing a PA/intercom sound system built on IP
 speakers, designed to stay brand-agnostic — a dropdown with the most
 common multicast-paging brands (Fanvil, Algo, CyberData, Grandstream,
