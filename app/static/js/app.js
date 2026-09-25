@@ -20,13 +20,22 @@ async function api(path, opts = {}) {
     if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         const detail = data.detail;
-        const message = typeof detail === 'string' ? detail : (detail && detail.message) || `Errore ${res.status}`;
+        const message = typeof detail === 'string' ? detail : (detail && detail.message) || `HTTP ${res.status}`;
         const err = new Error(message);
         err.detail = detail; // may be a structured object (e.g. {message, applied, failed})
         throw err;
     }
     if (res.status === 204) return null;
     return res.json();
+}
+
+// The API returns naive UTC timestamps (datetime.utcnow(), no offset),
+// which `new Date()` would otherwise parse as *local* time — shifting
+// every displayed time by the viewer's UTC offset.
+function fmtDateTime(iso) {
+    if (!iso) return '—';
+    const hasOffset = /(Z|[+-]\d{2}:?\d{2})$/i.test(iso);
+    return new Date(hasOffset ? iso : `${iso}Z`).toLocaleString();
 }
 
 // ---------- Tabs ----------
@@ -149,6 +158,24 @@ async function loadAll() {
     await loadHistory();
 }
 
+// Tables and labels built here go through t() at render time, so a
+// language switch must redraw them — from the data already in `state`,
+// without touching the play/schedule pickers the user may have filled.
+document.addEventListener('zc:languagechange', () => {
+    renderSpeakers(); renderZones(); renderMedia(); renderSchedules(); renderUsers();
+    populateZoneSelects();
+    loadHistory();
+    const activeTab = document.querySelector('#main-tabs .nav-item.active');
+    if (activeTab) document.getElementById('page-title').textContent = activeTab.querySelector('span')?.textContent || activeTab.dataset.tab;
+    if (state.role === 'admin') {
+        // Not loadSystemTime(): that also refills the network form, which
+        // would discard an admin's unsaved edits there.
+        if (lastTimeStatus) renderTimeStatusLabels(lastTimeStatus);
+        if (!document.getElementById('tab-logs').classList.contains('d-none')) loadLogs();
+        if (!document.getElementById('tab-backuparchive').classList.contains('d-none')) loadBackupArchive();
+    }
+});
+
 function statusDot(status) {
     return `<span class="status-dot status-${status}" title="${status}"></span>`;
 }
@@ -229,7 +256,7 @@ function renderMedia() {
             <td>${m.original_filename}</td>
             <td>${m.duration_seconds.toFixed(1)}s</td>
             <td class="col-secondary">${(m.size_bytes / 1024 / 1024).toFixed(2)} MB</td>
-            <td class="col-secondary">${new Date(m.uploaded_at).toLocaleString()}</td>
+            <td class="col-secondary">${fmtDateTime(m.uploaded_at)}</td>
             <td>${mediaAnalysisCell(m)}</td>
             <td class="text-end table-actions">
                 <a class="btn btn-sm btn-outline-secondary" href="/api/media/${m.id}/download"><i class="bi bi-download"></i><span class="btn-label"> ${t('action.download')}</span></a>
@@ -359,8 +386,11 @@ function populateMediaSelects() {
     document.getElementById('schedule-media').innerHTML = opts;
 }
 function populateZoneSelects() {
-    document.getElementById('speaker-zone').innerHTML = '<option value="">(nessuna)</option>' +
+    const sel = document.getElementById('speaker-zone');
+    const current = sel.value;
+    sel.innerHTML = `<option value="">${t('common.none')}</option>` +
         state.zones.map(z => `<option value="${z.id}">${z.name}</option>`).join('');
+    if ([...sel.options].some(o => o.value === current)) sel.value = current;
 }
 function populateTargetPickers() {
     for (const prefix of ['play', 'schedule']) {
@@ -406,7 +436,7 @@ async function loadHistory() {
     }[s] || 'bg-secondary');
     document.getElementById('history-body').innerHTML = rows.map(r => `
         <tr>
-            <td>${new Date(r.started_at).toLocaleString()}</td>
+            <td>${fmtDateTime(r.started_at)}</td>
             <td>${state.media.find(m => m.id === r.media_id)?.original_filename || r.media_id}</td>
             <td>${playTargetLabel(r)}</td>
             <td class="col-secondary">${r.source === 'schedule' ? t('play.sourceScheduled') : `${t('play.sourceManual')}${r.triggered_by_name ? ' — ' + r.triggered_by_name : ''}`}</td>
@@ -484,7 +514,7 @@ async function refreshBackups(id) {
         const backups = await api(`/api/speakers/${id}/backups`);
         document.getElementById('backups-body').innerHTML = backups.map(b => `
             <tr>
-                <td>${new Date(b.created_at).toLocaleString()}</td>
+                <td>${fmtDateTime(b.created_at)}</td>
                 <td>${b.format}</td>
                 <td class="col-secondary">${(b.size_bytes / 1024).toFixed(1)} KB</td>
                 <td class="col-secondary">${b.created_by_name || '—'}</td>
@@ -989,15 +1019,20 @@ setInterval(loadHostResources, 15000);
 
 // ---------- System time / NTP (read-only on Docker, full control on native) ----------
 let timezonesLoaded = false;
+let lastTimeStatus = null;
+function renderTimeStatusLabels(status) {
+    document.getElementById('sys-sync-status').innerHTML = status.ntp_synchronized
+        ? `<span class="badge bg-success">${t('system.synced')}</span>`
+        : `<span class="badge bg-warning text-dark">${t('system.notSynced')}</span>`;
+    document.getElementById('sys-ntp-servers-display').textContent = status.ntp_servers.length ? status.ntp_servers.join(', ') : t('system.noneConfigured');
+}
 async function loadSystemTime() {
     try {
         const status = await api('/api/system/time');
+        lastTimeStatus = status;
         document.getElementById('sys-local-time').textContent = status.local_time;
         document.getElementById('sys-timezone').textContent = status.timezone;
-        document.getElementById('sys-sync-status').innerHTML = status.ntp_synchronized
-            ? `<span class="badge bg-success">${t('system.synced')}</span>`
-            : `<span class="badge bg-warning text-dark">${t('system.notSynced')}</span>`;
-        document.getElementById('sys-ntp-servers-display').textContent = status.ntp_servers.length ? status.ntp_servers.join(', ') : t('system.noneConfigured');
+        renderTimeStatusLabels(status);
 
         document.getElementById('sys-ntp-controls').classList.toggle('d-none', !status.controllable);
         document.getElementById('sys-time-readonly-note').classList.toggle('d-none', status.controllable);
@@ -1144,7 +1179,7 @@ async function loadLogs() {
         const rows = await api(`/api/logs?${params.toString()}`);
         document.getElementById('logs-body').innerHTML = rows.map(r => `
             <tr>
-                <td class="text-nowrap small">${new Date(r.created_at).toLocaleString()}</td>
+                <td class="text-nowrap small">${fmtDateTime(r.created_at)}</td>
                 <td><span class="badge ${LEVEL_BADGE[r.level] || 'bg-secondary'}">${r.level}</span></td>
                 <td class="small text-muted col-secondary">${r.logger_name}</td>
                 <td class="small">${r.message}</td>
@@ -1198,7 +1233,7 @@ async function loadBackupArchive() {
         const rows = await api('/api/backups');
         document.getElementById('backup-archive-body').innerHTML = rows.map(b => `
             <tr>
-                <td>${new Date(b.created_at).toLocaleString()}</td>
+                <td>${fmtDateTime(b.created_at)}</td>
                 <td>${b.speaker_name || '—'}${b.speaker_exists ? '' : ` <span class="badge bg-secondary" title="${t('backups.speakerDeleted')}">${t('backups.archived')}</span>`}</td>
                 <td class="col-secondary">${b.speaker_ip || '—'}</td>
                 <td>${b.format}</td>

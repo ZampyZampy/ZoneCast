@@ -31,3 +31,32 @@ def test_clear_logs(admin_client):
     res = admin_client.get("/api/logs")
     assert res.status_code == 200
     assert res.json() == []
+
+
+def _add_log_row(created_at):
+    from app.database import SessionLocal
+    from app.models import EventLog
+    db = SessionLocal()
+    try:
+        db.add(EventLog(created_at=created_at, level="INFO", logger_name="test", message="export-probe"))
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_log_export_marks_timestamps_as_utc(admin_client):
+    from datetime import datetime
+    _add_log_row(datetime(2026, 9, 25, 15, 0, 0))
+
+    res = admin_client.get("/api/logs/export", params={"format": "json", "q": "export-probe"})
+    assert res.status_code == 200
+    assert [r["created_at"] for r in res.json()] == ["2026-09-25T15:00:00+00:00"]
+
+    res = admin_client.get("/api/logs/export", params={"format": "csv", "q": "export-probe"})
+    assert res.status_code == 200
+    assert "2026-09-25T15:00:00+00:00" in res.text
+
+
+def test_log_export_rejects_unknown_format(admin_client):
+    res = admin_client.get("/api/logs/export", params={"format": "xml"})
+    assert res.status_code == 400

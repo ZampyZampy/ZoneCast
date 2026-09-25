@@ -9,6 +9,7 @@ of future dates.
 """
 import logging
 from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import holidays
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -70,7 +71,10 @@ async def _run_schedule(schedule_id: int):
         if not sched or not sched.enabled:
             return
 
-        today = datetime.now().date()
+        # The cron trigger fires in settings.timezone, which can differ
+        # from the host/container clock — judge the date range and the
+        # holiday rule on that same calendar day.
+        today = datetime.now(ZoneInfo(settings.timezone)).date()
         if sched.start_date and today < sched.start_date:
             return
         if sched.end_date and today > sched.end_date:
@@ -176,7 +180,7 @@ def start():
             _check_all_speakers_job, trigger="interval",
             minutes=speaker_status.CHECK_INTERVAL_MINUTES,
             id="speaker-status-check", replace_existing=True,
-            next_run_time=datetime.now(),  # also run once immediately at startup
+            next_run_time=datetime.now(ZoneInfo(settings.timezone)),  # also run once immediately at startup
         )
         sched_engine.start()
 

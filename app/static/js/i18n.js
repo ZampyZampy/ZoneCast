@@ -168,6 +168,9 @@ function setLanguage(lang) {
     if (!SUPPORTED_LANGUAGES.includes(lang)) return;
     try { localStorage.setItem('zc_lang', lang); } catch (e) { /* non-fatal */ }
     applyI18n();
+    // applyI18n() only covers static [data-i18n] elements — pages that
+    // build content with t() at render time listen for this to redraw it.
+    document.dispatchEvent(new Event('zc:languagechange'));
 }
 
 function t(key, params) {

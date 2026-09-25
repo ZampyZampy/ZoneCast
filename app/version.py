@@ -4,7 +4,7 @@ APP_VERSION and add a CHANGELOG entry whenever a user-visible change
 ships — this is the only place either needs updating.
 """
 
-APP_VERSION = "1.5.6"
+APP_VERSION = "1.5.7"
 
 # Newest first. Each entry: version, date (YYYY-MM-DD), list of
 # one-line change descriptions. English, matching the UI's default
@@ -12,6 +12,19 @@ APP_VERSION = "1.5.6"
 # through app/static/js/i18n.js, so non-English viewers see it in
 # English regardless of their selected language.
 CHANGELOG = [
+    {
+        "version": "1.5.7",
+        "date": "2026-09-25",
+        "changes": [
+            "Fixed times in the playback history, log, media and backup lists being shifted by the viewer's UTC offset (e.g. 2 hours behind in Italy during summer time) — the server stores UTC, but the browser was reading it as local time",
+            "Switching the interface language now also redraws tables and lists immediately, instead of leaving them in the previous language until the next page reload",
+            "Fixed the \"(none)\" zone option in the speaker form always showing in Italian",
+            "Dark theme: Edit/Amplify buttons and links are now readable instead of nearly invisible against the dark background",
+            "Log exports (CSV/JSON) now mark timestamps explicitly as UTC (+00:00)",
+            "Schedules now check their date range and holiday rule against the date in the configured TIMEZONE, not the host clock's zone",
+            "Automatic theme: fixed staying dark all day at longitudes where daylight spans midnight UTC",
+        ],
+    },
     {
         "version": "1.5.6",
         "date": "2026-09-24",

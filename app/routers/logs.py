@@ -1,7 +1,7 @@
 import csv
 import io
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
@@ -36,6 +36,13 @@ def list_logs(
     return _filtered_query(db, level, q).limit(min(limit, 1000)).all()
 
 
+def _utc_iso(dt: datetime) -> str:
+    """Stored timestamps are naive UTC — give exports an explicit +00:00
+    so they can't be mistaken for local time (the dashboard converts
+    them to the viewer's time zone)."""
+    return dt.replace(tzinfo=timezone.utc).isoformat()
+
+
 @router.get("/export")
 def export_logs(
     format: str = "csv",
@@ -54,7 +61,7 @@ def export_logs(
         payload = [
             {
                 "id": r.id,
-                "created_at": r.created_at.isoformat(),
+                "created_at": _utc_iso(r.created_at),
                 "level": r.level,
                 "logger_name": r.logger_name,
                 "message": r.message,
@@ -73,7 +80,7 @@ def export_logs(
         writer = csv.writer(buffer)
         writer.writerow(["id", "created_at", "level", "logger_name", "message"])
         for r in rows:
-            writer.writerow([r.id, r.created_at.isoformat(), r.level, r.logger_name, r.message])
+            writer.writerow([r.id, _utc_iso(r.created_at), r.level, r.logger_name, r.message])
         return Response(
             content=buffer.getvalue(),
             media_type="text/csv",
