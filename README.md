@@ -16,6 +16,11 @@ register speakers, group them into zones, upload audio files, play
 them on demand, and schedule them over time with a per-country holiday
 calendar.
 
+<p align="center">
+  <img src="docs/readme/tour.gif" alt="ZoneCast tour: sign in, play an audio file to a zone, browse speakers, zones, schedules and media, then switch to the dark theme and to Italian and Japanese" width="100%">
+</p>
+<p align="center"><sub>Sign in → play a file to a zone → speakers, zones, schedules, media → dark theme → Italian / Japanese · <a href="docs/readme/tour.mp4">MP4 version</a></sub></p>
+
 ## Key features
 
 - **Multicast RTP playback** to zones, single speakers, or the whole
@@ -41,6 +46,36 @@ calendar.
 - **Multilingual interface** (English, Italian, Chinese, Japanese,
   German, Spanish, French) with light/dark/automatic theme (based on
   real sunrise/sunset), chosen independently by each user.
+
+## Screenshots
+
+| Live playback and history | Speakers |
+|:---:|:---:|
+| <img src="docs/readme/play.png" alt="Play tab: pick an audio file and a destination, with the playback history alongside"> | <img src="docs/readme/speakers.png" alt="Speakers list with online/offline status, zone, multicast group and brand/model"> |
+| **Zones** | **Schedules** |
+| <img src="docs/readme/zones.png" alt="Zones list with description, multicast group and speaker count"> | <img src="docs/readme/schedules.png" alt="Schedules list with destination, time, days of the week and holiday rule"> |
+| **Media and audio analysis** | **Schedule editor with holiday calendars** |
+| <img src="docs/readme/media.png" alt="Media library with per-file bass/mid/treble analysis and suggested gain"> | <img src="docs/readme/schedule_modal.png" alt="Schedule editor: time, days, optional date range, holiday handling and holiday calendar country"> |
+| **System panel** | **Dark theme** |
+| <img src="docs/readme/system.png" alt="System panel: network, server time and NTP, host resources"> | <img src="docs/readme/dark_play.png" alt="Play tab in the dark theme"> |
+
+### Creating a schedule
+
+<p align="center">
+  <img src="docs/readme/schedule.gif" alt="Creating a schedule: name, audio file, destination zone, time, days of the week, holiday handling and calendar, then save" width="100%">
+</p>
+
+### On mobile
+
+The whole dashboard works from a phone: the sidebar becomes a drawer
+(with language and theme selectors), tables hide secondary columns and
+scroll sideways when needed, and action buttons shrink to icons.
+
+<p align="center">
+  <img src="docs/readme/mobile.gif" alt="ZoneCast on a phone: play a file to a zone, swipe the history to see its status, open the drawer, go to Speakers, switch to the dark theme, open Schedules" width="262">
+  &nbsp;&nbsp;
+  <img src="docs/readme/mobile.png" alt="ZoneCast on a phone: play tab, sidebar drawer, schedules list, speakers list, schedule editor and the dark theme" width="404">
+</p>
 
 ## 1. Architecture
 
