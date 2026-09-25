@@ -201,6 +201,19 @@ a, .btn-link {
     color: var(--pa-accent);
 }
 
+/* The accent is typically a mid/dark shade chosen against light
+   backgrounds — used as outline/link text on dark cards it all but
+   disappears, so dark mode switches those to the lightened variant. */
+[data-bs-theme="dark"] .btn-outline-primary {
+    --bs-btn-color: var(--pa-accent-light);
+    --bs-btn-border-color: var(--pa-accent-light);
+    --bs-btn-hover-color: #fff;
+}
+[data-bs-theme="dark"] a:not(.btn),
+[data-bs-theme="dark"] .btn-link {
+    color: var(--pa-accent-light);
+}
+
 .status-dot {
     display: inline-block;
     width: 10px;

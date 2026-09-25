@@ -78,7 +78,10 @@ function isNightNow(coords) {
     const { sunrise, sunset } = sunTimesUTC(coords.lat, coords.lon, now);
     if (sunrise === null || sunset === null) return false; // polar edge case — default to day
     const nowUTC = now.getUTCHours() + now.getUTCMinutes() / 60;
-    return !(nowUTC >= sunrise && nowUTC < sunset);
+    const isDay = sunrise <= sunset
+        ? nowUTC >= sunrise && nowUTC < sunset
+        : nowUTC >= sunrise || nowUTC < sunset; // daylight spans 00:00 UTC
+    return !isDay;
 }
 
 function resolveEffectiveTheme(pref) {

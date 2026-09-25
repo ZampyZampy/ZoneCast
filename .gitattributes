@@ -14,3 +14,5 @@
 *.pdf binary
 *.tar.gz binary
 *.ico binary
+*.gif binary
+*.mp4 binary
