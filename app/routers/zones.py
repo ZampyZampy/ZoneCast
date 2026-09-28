@@ -8,7 +8,7 @@ from ..errors import AppError
 from ..deps import get_current_user
 from ..models import Speaker, TargetType, Zone, User
 from ..schemas import ZoneCreate, ZoneOut
-from ..services import multicast_provisioning, references
+from ..services import multicast_provisioning, overlap, references
 from ..services.multicast_addressing import MulticastAddressConflict, check_address_available
 
 router = APIRouter(prefix="/api/zones", tags=["zones"])
@@ -107,12 +107,23 @@ def update_zone(
         members = _load_members(db, payload.speaker_ids)
         _check_zone_limit(zone.id, [s for s in members if s.id not in before])
     paging_changed = any(getattr(zone, f) != new_values[f] for f in _PAGING_RELEVANT_FIELDS)
-    for k, v in new_values.items():
-        setattr(zone, k, v)
-    if members is not None:
-        zone.speakers = members
-    db.commit()
+    warnings = []
+    with overlap.SAVE_LOCK:
+        # New members can make schedules on this zone overlap others on
+        # those speakers: saved anyway (blocking could stop the very fix),
+        # but reported.
+        membership_changes = members is not None and {s.id for s in members} != before.keys()
+        pairs_before = overlap.all_pairs(db) if membership_changes else []
+        for k, v in new_values.items():
+            setattr(zone, k, v)
+        if members is not None:
+            zone.speakers = members
+        if membership_changes:
+            db.flush()
+            warnings = overlap.new_pairs(pairs_before, overlap.all_pairs(db))
+        db.commit()
     db.refresh(zone)
+    zone.warnings = warnings
     after = {s.id: s.name for s in zone.speakers}
     _log_membership(zone, before, after, user)
     # Members that joined or left need their paging list rewritten; all

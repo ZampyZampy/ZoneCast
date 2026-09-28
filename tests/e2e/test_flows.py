@@ -324,3 +324,67 @@ def test_live_announcement_on_busy_speakers_asks_first(page, server):
     finally:
         for log_id in server.api.get("/api/playback/active").json()["active_log_ids"]:
             server.api.post(f"/api/playback/stop/{log_id}")
+
+
+def test_custom_dates_list_and_schedule_rule(page, server):
+    tag = uuid.uuid4().hex[:6]
+    media_name = _uid("cal") + ".wav"
+    add_media(server, name=media_name)
+    login(page, server)
+    open_tab(page, "schedules")
+    page.click("#new-calendar-btn")
+    page.wait_for_selector("#calendar-modal.show")
+    page.fill("#calendar-name", f"closures-{tag}")
+    page.locator("#calendar-entries [data-field=start]").first.fill("2026-08-10")
+    page.locator("#calendar-entries [data-field=end]").first.fill("2026-08-21")
+    page.click("#calendar-modal summary")
+    page.fill("#calendar-paste", "24/12/2026 06/01/2027 Christmas\nnot a date")
+    page.click("#calendar-paste-add")
+    assert page.inner_text("#calendar-entry-count") == "2"
+    assert page.input_value("#calendar-paste") == "not a date"  # what couldn't be read stays there
+    page.locator("#calendar-entries [data-field=yearly]").nth(1).check()
+    page.click("#calendar-modal button[type=submit]")
+    page.wait_for_selector(f"#calendars-body tr:has-text('closures-{tag}'):has-text('Christmas')")
+    cal = next(c for c in server.api.get("/api/calendars").json() if c["name"] == f"closures-{tag}")
+    assert [(d["start_date"], d["end_date"], d["yearly"]) for d in cal["dates"]] == [
+        ("2026-08-10", "2026-08-21", False), ("2026-12-24", "2027-01-06", True)]
+
+    page.click("#new-schedule-btn")
+    page.fill("#schedule-name", f"with-dates-{tag}")
+    page.select_option("#schedule-media", label=media_name)
+    page.fill("#schedule-time", "05:05")
+    page.select_option(f"#schedule-calendar-{cal['id']}", "exclude")
+    page.click("#schedule-modal button[type=submit]")
+    page.wait_for_selector(f"#schedules-body tr:has-text('with-dates-{tag}'):has-text('closures-{tag}')")
+    assert page.errors == []
+
+
+def test_an_overlapping_schedule_is_refused_inside_the_dialog(page, server):
+    tag = uuid.uuid4().hex[:6]
+    media_name = _uid("ov") + ".wav"
+    media_id = add_media(server, name=media_name, seconds=20)
+    blocker = server.api.post("/api/schedules", json={
+        "name": f'blocker-{tag}<img src=x onerror="window.__xss=1">', "media_id": media_id, "target_type": "all",
+        "time_of_day": "10:10:00", "days_of_week": "mon,tue,wed,thu,fri,sat,sun"}).json()
+    try:
+        login(page, server)
+        open_tab(page, "schedules")
+        page.click("#new-schedule-btn")
+        page.fill("#schedule-name", f"late-{tag}")
+        page.select_option("#schedule-media", label=media_name)
+        page.fill("#schedule-time", "10:10")
+        page.click("#schedule-modal button[type=submit]")
+        box = page.wait_for_selector("#schedule-conflicts:not(.d-none)")
+        assert f"blocker-{tag}" in box.inner_text()
+        assert page.is_visible("#schedule-modal")  # still open, to fix it
+        page.fill("#schedule-time", "10:20")
+        page.click("#schedule-modal button[type=submit]")
+        page.wait_for_selector("#schedule-modal", state="hidden")
+        page.wait_for_selector(f"#schedules-body tr:has-text('late-{tag}')")
+        assert page.evaluate("window.__xss") is None
+        assert page.errors == []
+    finally:
+        server.api.delete(f"/api/schedules/{blocker['id']}")
+        for s in server.api.get("/api/schedules").json():
+            if s["name"] == f"late-{tag}":
+                server.api.delete(f"/api/schedules/{s['id']}")

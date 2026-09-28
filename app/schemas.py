@@ -231,6 +231,8 @@ class ZoneOut(ZoneBase):
     id: int
     created_at: datetime
     speaker_ids: list[int] = []
+    # On save: schedules that now overlap because of the new members.
+    warnings: list["OverlapWarning"] = []
 
 
 # ---------- Speakers ----------
@@ -397,6 +399,17 @@ def _normalize_days_of_week(value: str) -> str:
     return ",".join(d for d in _WEEKDAYS if d in days)
 
 
+class ScheduleCalendarRule(BaseModel):
+    calendar_id: int
+    mode: Literal["exclude", "only"]
+
+
+def _check_calendar_rules(rules):
+    if rules is not None and len({r.calendar_id for r in rules}) != len(rules):
+        raise invalid("schedules.calendar_duplicate", "The same custom-dates list is used twice")
+    return rules
+
+
 class ScheduleBase(BaseModel):
     name: str
     media_id: int
@@ -410,6 +423,7 @@ class ScheduleBase(BaseModel):
     holidays_only: bool = False
     holiday_country: str = "IT"
     enabled: bool = True
+    calendars: list[ScheduleCalendarRule] = Field(default_factory=list, max_length=50)
 
     @field_validator("holiday_country")
     @classmethod
@@ -428,12 +442,19 @@ class ScheduleCreate(ScheduleBase):
     def _validate_days(cls, v: str) -> str:
         return _normalize_days_of_week(v)
 
+    @field_validator("calendars")
+    @classmethod
+    def _validate_calendars(cls, v):
+        return _check_calendar_rules(v)
+
     @model_validator(mode="after")
     def _validate_target_and_dates(self):
         if self.target_type != TargetType.all and self.target_id is None:
             raise invalid("schedules.target_required", "Choose the zone or speaker to play on")
         if self.start_date and self.end_date and self.start_date > self.end_date:
             raise invalid("schedules.dates_inverted", "The start date is after the end date")
+        if self.exclude_holidays and self.holidays_only:
+            raise invalid("schedules.holiday_mode_invalid", "Choose either \"skip holidays\" or \"only on holidays\"")
         return self
 
 
@@ -450,6 +471,12 @@ class ScheduleUpdate(BaseModel):
     holidays_only: Optional[bool] = None
     holiday_country: Optional[str] = None
     enabled: Optional[bool] = None
+    calendars: Optional[list[ScheduleCalendarRule]] = Field(None, max_length=50)  # None = unchanged
+
+    @field_validator("calendars")
+    @classmethod
+    def _validate_calendars(cls, v):
+        return _check_calendar_rules(v)
 
     @field_validator("holiday_country")
     @classmethod
@@ -479,3 +506,53 @@ class ScheduleOut(ScheduleBase):
     id: int
     created_at: datetime
     updated_at: datetime
+
+
+# ---------- Custom dates ----------
+class CalendarDateIn(BaseModel):
+    start_date: date
+    end_date: Optional[date] = None
+    label: str = Field("", max_length=128)
+    yearly: bool = False
+
+    @model_validator(mode="after")
+    def _check_range(self):
+        if self.end_date is not None:
+            span = (self.end_date - self.start_date).days
+            # A yearly range spans at most a year (it may cross Dec 31).
+            if span < 0 or (self.yearly and span > 365):
+                raise invalid("calendars.range_invalid", "Invalid date range: the end is before the start")
+        return self
+
+
+class CalendarDateOut(CalendarDateIn):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+
+
+class CalendarIn(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field("", max_length=255)
+    dates: list[CalendarDateIn] = Field(default_factory=list, max_length=2000)
+
+
+class CalendarOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    name: str
+    description: str = ""
+    dates: list[CalendarDateOut] = []
+    schedule_count: int = 0
+
+
+class OverlapWarning(BaseModel):
+    """A pair of schedules that now play on some of the same speakers at
+    the same time — returned by saves that don't block on it."""
+    a_id: int
+    a_name: str
+    b_id: int
+    b_name: str
+    first_clash: str
+
+
+ZoneOut.model_rebuild()

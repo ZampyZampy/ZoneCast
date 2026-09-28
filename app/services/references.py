@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..errors import AppError
 
-from ..models import Media, Schedule, Speaker, TargetType, Zone
+from ..models import CustomCalendar, Media, Schedule, ScheduleCalendar, Speaker, TargetType, Zone
 
 
 def schedules_using_media(db: Session, media_id: int) -> list[Schedule]:
@@ -25,6 +25,16 @@ def schedules_targeting(db: Session, target_type: TargetType, target_id: int) ->
     )
 
 
+def schedules_using_calendar(db: Session, calendar_id: int) -> list[Schedule]:
+    return (
+        db.query(Schedule)
+        .join(ScheduleCalendar, ScheduleCalendar.schedule_id == Schedule.id)
+        .filter(ScheduleCalendar.calendar_id == calendar_id)
+        .order_by(Schedule.name)
+        .all()
+    )
+
+
 def refuse_if_used(schedules: list[Schedule], code: str, what: str) -> None:
     """409 naming the schedules that would break, so the user knows what
     to edit or delete first."""
@@ -35,11 +45,19 @@ def refuse_if_used(schedules: list[Schedule], code: str, what: str) -> None:
                    count=len(schedules), names=names)
 
 
-def check_schedule_references(db: Session, sched: Schedule) -> None:
-    """422 if a schedule points at an audio file or target that doesn't exist."""
+def check_schedule_references(db: Session, sched: Schedule, rules: list[dict] = ()) -> None:
+    """422 if a schedule points at an audio file, target or custom-dates
+    list that doesn't exist."""
     if not db.query(Media.id).filter(Media.id == sched.media_id).first():
         raise AppError(422, "schedules.media_missing", "The selected audio file no longer exists.", media_id=sched.media_id)
     if sched.target_type == TargetType.zone and not db.query(Zone.id).filter(Zone.id == sched.target_id).first():
         raise AppError(422, "schedules.zone_missing", "The selected zone no longer exists.", target_id=sched.target_id)
     if sched.target_type == TargetType.speaker and not db.query(Speaker.id).filter(Speaker.id == sched.target_id).first():
         raise AppError(422, "schedules.speaker_missing", "The selected speaker no longer exists.", target_id=sched.target_id)
+    ids = {r["calendar_id"] for r in rules}
+    if ids:
+        found = {cid for (cid,) in db.query(CustomCalendar.id).filter(CustomCalendar.id.in_(ids)).all()}
+        missing = sorted(ids - found)
+        if missing:
+            raise AppError(422, "schedules.calendar_missing", "A selected custom-dates list no longer exists.",
+                           ids=", ".join(map(str, missing)))

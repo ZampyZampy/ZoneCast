@@ -80,6 +80,43 @@ def _no_device_network(monkeypatch):
     monkeypatch.setattr(httpx.Client, "send", guarded_send)
 
 
+@pytest.fixture(autouse=True)
+def _no_leftover_schedules():
+    """Schedules (and custom-dates lists) a test creates are removed after
+    it: an enabled one left behind would make a later test's schedule at
+    the same time "overlap" and be refused."""
+    from sqlalchemy import func
+    from sqlalchemy.exc import OperationalError
+
+    from app.database import SessionLocal
+    from app.models import CustomCalendar, PlaybackLog, Schedule, ScheduleCalendar
+
+    db = SessionLocal()
+    try:
+        last_schedule = db.query(func.max(Schedule.id)).scalar() or 0
+        last_calendar = db.query(func.max(CustomCalendar.id)).scalar() or 0
+    except OperationalError:  # the very first test: tables not created yet
+        last_schedule = last_calendar = 0
+    finally:
+        db.close()
+    yield
+    db = SessionLocal()
+    try:
+        ids = [sid for (sid,) in db.query(Schedule.id).filter(Schedule.id > last_schedule).all()]
+        if ids:
+            db.query(PlaybackLog).filter(PlaybackLog.schedule_id.in_(ids)).delete(synchronize_session=False)
+            db.query(ScheduleCalendar).filter(ScheduleCalendar.schedule_id.in_(ids)).delete(synchronize_session=False)
+            db.query(Schedule).filter(Schedule.id.in_(ids)).delete(synchronize_session=False)
+        for cal in db.query(CustomCalendar).filter(CustomCalendar.id > last_calendar).all():
+            db.query(ScheduleCalendar).filter(ScheduleCalendar.calendar_id == cal.id).delete(synchronize_session=False)
+            db.delete(cal)
+        db.commit()
+    except OperationalError:
+        db.rollback()
+    finally:
+        db.close()
+
+
 @pytest.fixture()
 def client():
     # scheduler.py keeps its AsyncIOScheduler in a module-level
@@ -104,7 +141,7 @@ def admin_client(client):
 def media_id(client):
     """A Media row schedules can point at (they're now checked to exist)."""
     from app.database import SessionLocal
-    from app.models import Media, PlaybackLog, Schedule
+    from app.models import Media, PlaybackLog, Schedule, ScheduleCalendar
 
     db = SessionLocal()
     try:
@@ -118,6 +155,8 @@ def media_id(client):
     db = SessionLocal()
     try:
         db.query(PlaybackLog).filter(PlaybackLog.media_id == mid).delete()
+        ids = [sid for (sid,) in db.query(Schedule.id).filter(Schedule.media_id == mid).all()]
+        db.query(ScheduleCalendar).filter(ScheduleCalendar.schedule_id.in_(ids)).delete(synchronize_session=False)
         db.query(Schedule).filter(Schedule.media_id == mid).delete()
         db.query(Media).filter(Media.id == mid).delete()
         db.commit()

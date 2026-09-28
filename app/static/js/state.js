@@ -8,6 +8,8 @@ export const state = {
     zones: [],
     media: [],
     schedules: [],
+    calendars: [],
+    overlaps: [],
     users: [],
 };
 
@@ -18,6 +20,8 @@ const ENDPOINTS = {
     zones: '/api/zones',
     media: '/api/media',
     schedules: '/api/schedules',
+    calendars: '/api/calendars',
+    overlaps: '/api/schedules/overlaps',
     users: '/api/auth/users',
 };
 

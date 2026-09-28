@@ -8,6 +8,7 @@ import { isAdmin, refresh, state } from './state.js';
 import * as account from './features/account.js';
 import * as alerts from './features/alerts.js';
 import * as backups from './features/backups.js';
+import * as calendars from './features/calendars.js';
 import * as logs from './features/logs.js';
 import * as media from './features/media.js';
 import * as nav from './features/nav.js';
@@ -33,6 +34,7 @@ function onLanguageChange() {
     zones.render();
     media.render();
     schedules.render();
+    calendars.render();
     playback.renderHistory();
     if (isAdmin()) {
         users.render();
@@ -44,7 +46,7 @@ function onLanguageChange() {
 
 async function loadData() {
     try {
-        await refresh('speakers', 'zones', 'media', 'schedules', 'users');
+        await refresh('speakers', 'zones', 'media', 'schedules', 'calendars', 'overlaps', 'users');
         await playback.loadHistory();
     } catch (err) {
         alerts.showLoadError(err.message, loadData);
@@ -70,6 +72,7 @@ async function boot() {
     speakers.init();
     zones.init();
     schedules.init();
+    calendars.init();
     if (isAdmin()) {
         users.init();
         system.init();

@@ -16,3 +16,27 @@ export function compareValues(a, b) {
 }
 
 export const fmtGiB = (bytes) => (bytes / (1024 ** 3)).toFixed(1);
+
+// A calendar day ("2026-12-24") or a wall-clock time on the scheduler's
+// clock ("2026-12-24T08:00"): shown as written, never shifted to the
+// viewer's timezone.
+function wallClock(iso) {
+    const [d, time = '00:00'] = iso.split('T');
+    const [y, m, day] = d.split('-').map(Number);
+    const [hh, mm] = time.split(':').map(Number);
+    return new Date(Date.UTC(y, m - 1, day, hh, mm));
+}
+
+export function fmtDay(iso, { yearly = false } = {}) {
+    if (!iso) return '';
+    const opts = { timeZone: 'UTC', day: 'numeric', month: 'short' };
+    if (!yearly) opts.year = 'numeric';
+    return wallClock(iso).toLocaleDateString(getLanguage(), opts);
+}
+
+export function fmtWallClock(iso) {
+    if (!iso) return '';
+    return wallClock(iso).toLocaleString(getLanguage(), {
+        timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+}

@@ -56,6 +56,16 @@ def get_alerts(db: Session) -> list[Alert]:
             params={"count": out_of_sync},
         ))
 
+    from . import overlap
+    overlaps = len(overlap.all_pairs(db))
+    if overlaps:
+        alerts.append(Alert(
+            severity="warning",
+            code="schedule_overlaps",
+            message=f"{overlaps} pair(s) of schedules play on the same speakers at the same time: check the Schedules tab.",
+            params={"count": overlaps},
+        ))
+
     try:
         disk_percent = host_resources.get_snapshot(cpu_sample_seconds=0.0).disk_percent
     except host_resources.HostResourcesError:

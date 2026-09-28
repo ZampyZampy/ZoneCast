@@ -258,6 +258,53 @@ class Schedule(Base):
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
+    # Custom dates (closures, exam days...) this schedule skips or keeps to.
+    calendar_rules = relationship("ScheduleCalendar", cascade="all, delete-orphan",
+                                  order_by="ScheduleCalendar.calendar_id")
+
+    @property
+    def calendars(self) -> list[dict]:
+        return [{"calendar_id": r.calendar_id, "mode": r.mode} for r in self.calendar_rules]
+
+
+class CustomCalendar(Base):
+    """A named list of dates or date ranges ("Summer closure", "Exam
+    days") that schedules can skip or be limited to."""
+    __tablename__ = "custom_calendars"
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(128), unique=True, nullable=False)
+    description = Column(String(255), default="")
+    created_at = Column(DateTime, default=utcnow)
+
+    dates = relationship("CustomCalendarDate", cascade="all, delete-orphan",
+                         order_by="CustomCalendarDate.start_date")
+
+
+class CustomCalendarDate(Base):
+    __tablename__ = "custom_calendar_dates"
+
+    id = Column(Integer, primary_key=True)
+    calendar_id = Column(Integer, ForeignKey("custom_calendars.id", name="fk_custom_calendar_dates_calendar_id"),
+                         nullable=False, index=True)
+    start_date = Column(Date, nullable=False)
+    end_date = Column(Date, nullable=True)  # None = the single day start_date
+    label = Column(String(128), default="")
+    # Every year on the same days (a patron saint's day, Dec 24 - Jan 6):
+    # only month and day count.
+    yearly = Column(Boolean, default=False, nullable=False)
+
+
+class ScheduleCalendar(Base):
+    """One custom-dates rule of a schedule: skip the calendar's days
+    ("exclude") or play only on them ("only")."""
+    __tablename__ = "schedule_calendars"
+
+    schedule_id = Column(Integer, ForeignKey("schedules.id", name="fk_schedule_calendars_schedule_id"), primary_key=True)
+    calendar_id = Column(Integer, ForeignKey("custom_calendars.id", name="fk_schedule_calendars_calendar_id"),
+                         primary_key=True, index=True)
+    mode = Column(String(8), nullable=False)
+
 
 class AppSettings(Base):
     """Single-row table (id is always 1) for global, app-wide UI settings

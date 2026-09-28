@@ -1,6 +1,7 @@
 // Schedules: table and the create/edit dialog.
 import { api } from '../lib/api.js';
 import { $, actionButton, esc, fillSelect, modal, onAction, run, toast } from '../lib/dom.js';
+import { fmtWallClock } from '../lib/format.js';
 import { makeSortable, sortedRows } from '../lib/sort.js';
 import { mediaName, onDataChange, refresh, speakerName, state, zoneName } from '../state.js';
 import { refreshTargetOptions } from './playback.js';
@@ -26,6 +27,27 @@ function holidayLabel(s) {
     return `${mode} (${s.holiday_country || 'IT'})`;
 }
 
+const calendarName = (id) => state.calendars.find(c => c.id === id)?.name || `#${id}`;
+
+function datesLabel(s) {
+    const names = (mode) => s.calendars.filter(r => r.mode === mode).map(r => calendarName(r.calendar_id)).join(', ');
+    const parts = [];
+    if (names('exclude')) parts.push(t('schedules.datesSkip', { names: names('exclude') }));
+    if (names('only')) parts.push(t('schedules.datesOnly', { names: names('only') }));
+    return parts.join(' · ');
+}
+
+// Schedules that already play on the same speakers at the same time
+// (saved before the check, or made so by zone members / custom dates).
+function overlapIcon(s) {
+    const others = state.overlaps
+        .filter(p => p.a_id === s.id || p.b_id === s.id)
+        .map(p => (p.a_id === s.id ? p.b_name : p.a_name));
+    if (!others.length) return '';
+    const text = esc(t('schedules.overlapIcon', { names: others.join(', ') }));
+    return ` <i class="bi bi-exclamation-triangle-fill text-warning" title="${text}" aria-hidden="true"></i><span class="visually-hidden">${text}</span>`;
+}
+
 function enabledCell(s) {
     const label = esc(s.enabled ? t('common.active') : t('schedules.paused'));
     return `<span aria-hidden="true" title="${label}">${s.enabled ? '✅' : '⏸️'}</span><span class="visually-hidden">${label}</span>`;
@@ -34,12 +56,12 @@ function enabledCell(s) {
 export function render() {
     $('schedules-body').innerHTML = sortedRows('schedules', state.schedules, SORT).map(s => `
         <tr>
-            <td>${esc(s.name)}</td>
+            <td>${esc(s.name)}${overlapIcon(s)}</td>
             <td class="col-secondary">${esc(mediaName(s.media_id) || s.media_id)}</td>
             <td>${targetBadge(s)}</td>
             <td>${esc(s.time_of_day.slice(0, 5))}</td>
             <td class="col-secondary">${esc(s.days_of_week.split(',').map(d => t(`schedules.${d}`)).join(' '))}</td>
-            <td class="col-secondary">${esc(holidayLabel(s))}</td>
+            <td class="col-secondary">${esc(holidayLabel(s))}${s.calendars.length ? `<div class="small text-muted">${esc(datesLabel(s))}</div>` : ''}</td>
             <td>${enabledCell(s)}</td>
             <td class="table-actions text-end">
                 ${actionButton('edit', s.id, 'bi-pencil', 'action.edit', 'btn-outline-primary')}
@@ -52,6 +74,74 @@ function renderMediaSelect() {
     fillSelect($('schedule-media'), state.media, { label: m => m.original_filename });
 }
 
+// One select per custom-dates list: not used / skip its days / only its days.
+function renderCalendarRules(rules = currentRules()) {
+    const box = $('schedule-calendars');
+    if (!state.calendars.length) {
+        box.innerHTML = `<div class="form-text mt-0">${esc(t('schedules.noCalendars'))}</div>`;
+        return;
+    }
+    const byId = new Map(rules.map(r => [r.calendar_id, r.mode]));
+    box.innerHTML = state.calendars.map(c => {
+        const id = `schedule-calendar-${Number(c.id)}`;
+        const mode = byId.get(c.id) || '';
+        const opt = (value, key) => `<option value="${value}"${mode === value ? ' selected' : ''}>${esc(t(key))}</option>`;
+        return `<div class="row g-2 align-items-center mb-1">
+            <label class="col-6 col-form-label col-form-label-sm text-break" for="${id}">${esc(c.name)}</label>
+            <div class="col-6"><select class="form-select form-select-sm" id="${id}" data-calendar="${Number(c.id)}">
+                ${opt('', 'schedules.calendarUnused')}${opt('exclude', 'schedules.calendarExclude')}${opt('only', 'schedules.calendarOnly')}
+            </select></div>
+        </div>`;
+    }).join('');
+}
+
+function currentRules() {
+    return [...document.querySelectorAll('#schedule-calendars select')]
+        .filter(sel => sel.value)
+        .map(sel => ({ calendar_id: Number(sel.dataset.calendar), mode: sel.value }));
+}
+
+function clearConflicts() {
+    $('schedule-conflicts').classList.add('d-none');
+    $('schedule-conflicts').replaceChildren();
+}
+
+// The save was refused: say which schedules it would play over, inside
+// the dialog (a toast would vanish while the user fixes the form).
+function showConflicts(params) {
+    const box = $('schedule-conflicts');
+    const node = (tag, className, text) => {
+        const el = document.createElement(tag);
+        if (className) el.className = className;
+        if (text !== undefined) el.textContent = text;
+        return el;
+    };
+    const list = node('ul', 'mb-1 ps-3');
+    for (const c of params.conflicts) {
+        const item = node('li', 'mb-1');
+        const target = c.target_type === 'all' ? t('common.allSpeakers')
+            : (c.target_type === 'zone' ? `${t('common.zone')}: ${c.target_label}` : c.target_label);
+        const days = c.days.map(d => t(`schedules.${d}`)).join(' ');
+        item.append(node('span', 'fw-medium', c.name), document.createTextNode(` — ${target}, ${c.time} (${days}). `),
+            node('span', '', t('schedules.overlapFirst', { when: fmtWallClock(c.first_clash) })));
+        if (c.shared_count) {
+            const more = c.shared_count > c.shared_speakers.length ? ', …' : '';
+            item.append(node('div', 'small', t('schedules.overlapShared', { n: c.shared_count, names: c.shared_speakers.join(', ') + more })));
+        }
+        const open = node('button', 'btn btn-link btn-sm p-0 align-baseline', t('schedules.openSchedule'));
+        open.type = 'button';
+        open.addEventListener('click', () => {
+            if (confirm(t('confirm.openOtherSchedule'))) edit(c.schedule_id);
+        });
+        item.append(document.createTextNode(' '), open);
+        list.append(item);
+    }
+    box.replaceChildren(node('div', 'fw-medium mb-1', t('schedules.overlapTitle')), list,
+        node('div', 'small', t('schedules.overlapHint')));
+    box.classList.remove('d-none');
+    box.scrollIntoView({ block: 'nearest' });
+}
+
 function resetForm() {
     $('schedule-form').reset();
     $('schedule-id').value = '';
@@ -59,6 +149,8 @@ function resetForm() {
     $('schedule-holiday-mode').value = 'none';
     $('schedule-holiday-country').value = 'IT';
     refreshTargetOptions('schedule');
+    renderCalendarRules([]);
+    clearConflicts();
 }
 
 function edit(id) {
@@ -78,14 +170,17 @@ function edit(id) {
     $('schedule-holiday-mode').value = s.holidays_only ? 'only' : (s.exclude_holidays ? 'exclude' : 'none');
     $('schedule-holiday-country').value = s.holiday_country || 'IT';
     $('schedule-enabled').checked = s.enabled;
+    renderCalendarRules(s.calendars);
+    clearConflicts();
     modal('schedule-modal').show();
 }
 
 export function init() {
     makeSortable('schedules', SORT, render);
     onDataChange((changed) => {
-        if (['schedules', 'media', 'zones', 'speakers'].some(n => changed.has(n))) render();
+        if (['schedules', 'media', 'zones', 'speakers', 'calendars', 'overlaps'].some(n => changed.has(n))) render();
         if (changed.has('media')) renderMediaSelect();
+        if (changed.has('calendars')) renderCalendarRules();
         if (changed.has('zones') || changed.has('speakers')) refreshTargetOptions('schedule');
     });
     $('schedule-target-type').addEventListener('change', () => refreshTargetOptions('schedule'));
@@ -111,12 +206,21 @@ export function init() {
             holidays_only: holidayMode === 'only',
             holiday_country: $('schedule-holiday-country').value,
             enabled: $('schedule-enabled').checked,
+            calendars: currentRules(),
         };
+        clearConflicts();
         run(async () => {
-            await api(id ? `/api/schedules/${id}` : '/api/schedules', { method: id ? 'PUT' : 'POST', body: payload });
+            try {
+                await api(id ? `/api/schedules/${id}` : '/api/schedules', { method: id ? 'PUT' : 'POST', body: payload });
+            } catch (err) {
+                if (!err.detail || err.detail.code !== 'schedules.overlap') throw err;
+                showConflicts(err.detail.params);
+                return false;
+            }
             modal('schedule-modal').hide();
-            await refresh('schedules');
-        }, { button: e.submitter, success: t('toast.scheduleSaved') });
+            await refresh('schedules', 'calendars', 'overlaps');
+            return true;
+        }, { button: e.submitter, success: (saved) => (saved ? t('toast.scheduleSaved') : null) });
     });
 
     onAction($('schedules-body'), {
@@ -125,7 +229,7 @@ export function init() {
             if (!confirm(t('confirm.deleteSchedule'))) return;
             run(async () => {
                 await api(`/api/schedules/${id}`, { method: 'DELETE' });
-                await refresh('schedules');
+                await refresh('schedules', 'calendars', 'overlaps');
             }, { button: btn });
         },
     });

@@ -4,6 +4,7 @@ import { api } from '../lib/api.js';
 import { $, actionButton, esc, modal, onAction, run } from '../lib/dom.js';
 import { makeSortable, sortedRows } from '../lib/sort.js';
 import { onDataChange, refresh, speakerName, state } from '../state.js';
+import { reportOverlaps } from './calendars.js';
 
 const MEMBER_PREVIEW = 3;  // names shown under the count in the table
 
@@ -138,9 +139,10 @@ export function init() {
             speaker_ids: [...selected],
         };
         run(async () => {
-            await api(id ? `/api/zones/${id}` : '/api/zones', { method: id ? 'PUT' : 'POST', body: payload });
+            const saved = await api(id ? `/api/zones/${id}` : '/api/zones', { method: id ? 'PUT' : 'POST', body: payload });
             modal('zone-modal').hide();
-            await refresh('zones', 'speakers');  // speakers carry their zone_ids
+            await refresh('zones', 'speakers', 'overlaps');  // speakers carry their zone_ids
+            reportOverlaps(saved.warnings);
         }, { button: e.submitter, success: t('toast.zoneSaved') });
     });
 

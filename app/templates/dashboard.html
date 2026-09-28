@@ -184,8 +184,21 @@
             </div>
             <div class="table-responsive">
                 <table class="table align-middle">
-                    <thead><tr><th data-sort="name" data-i18n="common.name">Name</th><th data-sort="media" class="col-secondary" data-i18n="common.file">File</th><th data-i18n="common.destination">Destination</th><th data-sort="time" data-i18n="schedules.time">Time</th><th class="col-secondary" data-i18n="schedules.days">Days</th><th class="col-secondary" data-i18n="schedules.holidays">Holidays</th><th data-sort="enabled" data-i18n="common.active">Active</th><th></th></tr></thead>
+                    <thead><tr><th data-sort="name" data-i18n="common.name">Name</th><th data-sort="media" class="col-secondary" data-i18n="common.file">File</th><th data-i18n="common.destination">Destination</th><th data-sort="time" data-i18n="schedules.time">Time</th><th class="col-secondary" data-i18n="schedules.days">Days</th><th class="col-secondary" data-i18n="schedules.holidaysAndDates">Holidays and dates</th><th data-sort="enabled" data-i18n="common.active">Active</th><th></th></tr></thead>
                     <tbody id="schedules-body"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="card-section p-4 mt-3">
+            <div class="d-flex justify-content-between align-items-center mb-1">
+                <h5 class="mb-0" data-i18n="calendars.title">Custom dates</h5>
+                <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#calendar-modal" id="new-calendar-btn" data-i18n="calendars.new">+ New list</button>
+            </div>
+            <p class="small text-muted" data-i18n="calendars.intro">Closures, exam days, events: lists of days a schedule can skip or be limited to.</p>
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead><tr><th data-i18n="common.name">Name</th><th data-i18n="calendars.entries">Dates</th><th class="col-secondary" data-i18n="calendars.usedBy">Used by</th><th></th></tr></thead>
+                    <tbody id="calendars-body"></tbody>
                 </table>
             </div>
         </div>
@@ -527,7 +540,7 @@
 
 <!-- SCHEDULE MODAL -->
 <div class="modal fade" id="schedule-modal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down">
         <div class="modal-content">
             <form id="schedule-form">
                 <div class="modal-header"><h5 class="modal-title" data-i18n="schedules.modalTitle">Schedule</h5><button type="button" class="btn-close" data-bs-dismiss="modal" data-i18n-attr="aria-label" data-i18n="common.close" aria-label="Close"></button></div>
@@ -586,10 +599,15 @@
                             </select>
                         </div>
                     </div>
+                    <fieldset class="mb-2">
+                        <legend class="form-label fs-6 mb-1" data-i18n="schedules.customDates">Custom dates</legend>
+                        <div id="schedule-calendars"></div>
+                    </fieldset>
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" id="schedule-enabled" checked>
                         <label class="form-check-label" for="schedule-enabled" data-i18n="common.active">Active</label>
                     </div>
+                    <div id="schedule-conflicts" class="alert alert-danger mt-3 mb-0 d-none" role="alert" aria-live="assertive"></div>
                 </div>
                 <div class="modal-footer"><button class="btn btn-primary" type="submit" data-i18n="common.save">Save</button></div>
             </form>
@@ -739,6 +757,33 @@
 {% endif %}
 
 <!-- PASSWORD CONFIRMATION (replaces window.prompt, which can't mask a password) -->
+<div class="modal fade" id="calendar-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down">
+        <div class="modal-content">
+            <form id="calendar-form">
+                <div class="modal-header"><h5 class="modal-title" data-i18n="calendars.title">Custom dates</h5><button type="button" class="btn-close" data-bs-dismiss="modal" data-i18n-attr="aria-label" data-i18n="common.close" aria-label="Close"></button></div>
+                <div class="modal-body">
+                    <input type="hidden" id="calendar-id">
+                    <div class="mb-2"><label for="calendar-name" class="form-label" data-i18n="common.name">Name</label><input class="form-control" id="calendar-name" required maxlength="128"></div>
+                    <div class="mb-3"><label for="calendar-description" class="form-label" data-i18n="common.description">Description</label><input class="form-control" id="calendar-description" maxlength="255"></div>
+                    <fieldset>
+                        <legend class="form-label fs-6 mb-2"><span data-i18n="calendars.entries">Dates</span> <span class="badge text-bg-secondary" id="calendar-entry-count">0</span></legend>
+                        <div id="calendar-entries" class="calendar-entries"></div>
+                        <button type="button" class="btn btn-sm btn-outline-primary mt-2" id="calendar-add-entry" data-i18n="calendars.addDate">+ Add date</button>
+                    </fieldset>
+                    <details class="mt-3">
+                        <summary class="small" data-i18n="calendars.paste">Paste dates</summary>
+                        <label for="calendar-paste" class="form-label small mt-2" data-i18n="calendars.pasteHint">One per line: 2026-12-24, or a range 2026-12-24 2027-01-06 (24/12/2026 works too)</label>
+                        <textarea class="form-control form-control-sm" id="calendar-paste" rows="4"></textarea>
+                        <button type="button" class="btn btn-sm btn-outline-secondary mt-2" id="calendar-paste-add" data-i18n="calendars.pasteAdd">Add these dates</button>
+                    </details>
+                </div>
+                <div class="modal-footer"><button class="btn btn-primary" type="submit" data-i18n="common.save">Save</button></div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="play-conflict-modal" tabindex="-1" aria-labelledby="play-conflict-title">
     <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down">
         <div class="modal-content">

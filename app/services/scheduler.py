@@ -9,7 +9,8 @@ of future dates.
 """
 import asyncio
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from typing import Optional
 from zoneinfo import ZoneInfo
 
 import holidays
@@ -20,7 +21,7 @@ from apscheduler.triggers.cron import CronTrigger
 from ..config import settings
 from ..database import SessionLocal
 from ..models import Schedule, PlaybackSource, Speaker
-from . import player, event_log, multicast_provisioning, speaker_status
+from . import calendars, player, event_log, multicast_provisioning, speaker_status
 from .app_settings import get_settings
 
 logger = logging.getLogger("zonecast.scheduler")
@@ -105,6 +106,37 @@ def _is_holiday(d: date, country_code: str) -> bool:
     return d in calendar
 
 
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def skip_reason(sched, day: date, rules: tuple = ()) -> Optional[str]:
+    """Why `sched` doesn't run on `day` — or None if it does. The one
+    definition of "runs that day", used by the job itself and by the
+    overlap check (services/overlap.py). `sched` is a Schedule or
+    anything with the same attributes; `rules` its custom-dates rules
+    (calendars.rules_for)."""
+    if sched.start_date and day < sched.start_date:
+        return "before_start"
+    if sched.end_date and day > sched.end_date:
+        return "after_end"
+    if WEEKDAYS[day.weekday()] not in (sched.days_of_week or "").split(","):
+        return "weekday"
+    if sched.exclude_holidays or sched.holidays_only:
+        holiday = _is_holiday(day, sched.holiday_country)
+        if sched.exclude_holidays and holiday:
+            return "holiday"
+        if sched.holidays_only and not holiday:
+            return "not_holiday"
+    return calendars.rules_allow(rules, day)
+
+
+def fire_date(time_of_day, now: datetime) -> date:
+    """The calendar day a run belongs to. A 23:58 bell started late (up
+    to misfire_grace_time) after midnight is still that evening's bell:
+    its date range, holidays and custom dates are those of the day before."""
+    return now.date() if now.time() >= time_of_day else now.date() - timedelta(days=1)
+
+
 async def _run_schedule(schedule_id: int):
     db = SessionLocal()
     try:
@@ -113,20 +145,12 @@ async def _run_schedule(schedule_id: int):
             return
 
         # The cron trigger fires in scheduler_timezone(), which can differ
-        # from the host/container clock — judge the date range and the
-        # holiday rule on that same calendar day.
-        today = datetime.now(ZoneInfo(scheduler_timezone())).date()
-        if sched.start_date and today < sched.start_date:
-            return
-        if sched.end_date and today > sched.end_date:
-            return
-
-        holiday_today = _is_holiday(today, sched.holiday_country)
-        if sched.exclude_holidays and holiday_today:
-            logger.info("Schedule %s skipped: today is a %s holiday", schedule_id, sched.holiday_country)
-            return
-        if sched.holidays_only and not holiday_today:
-            logger.info("Schedule %s skipped: runs only on holidays", schedule_id)
+        # from the host/container clock — judge the date range, holidays
+        # and custom dates on that same calendar day.
+        day = fire_date(sched.time_of_day, datetime.now(ZoneInfo(scheduler_timezone())))
+        reason = skip_reason(sched, day, calendars.schedule_rules(db, sched.id))
+        if reason:
+            logger.info("Schedule %s skipped on %s: %s", schedule_id, day, reason)
             return
 
         logger.info("Running schedule %s (%s)", schedule_id, sched.name)
