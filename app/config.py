@@ -1,3 +1,6 @@
+import logging
+import os
+import secrets
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -54,8 +57,46 @@ class Settings(BaseSettings):
     def secret_key_path(self) -> Path:
         return self.data_dir / "secret.key"
 
+    @property
+    def session_key_path(self) -> Path:
+        return self.data_dir / "session.key"
+
 
 settings = Settings()
 settings.media_dir.mkdir(parents=True, exist_ok=True)
 settings.backups_dir.mkdir(parents=True, exist_ok=True)
 settings.data_dir.mkdir(parents=True, exist_ok=True)
+
+# Values shipped in the code / .env.example — anyone can read them, so a
+# session cookie signed with one of them can be forged at will.
+_PLACEHOLDER_SECRET_KEYS = {"", "change-me-in-production", "replace-with-a-long-random-string"}
+
+
+def session_secret() -> str:
+    """The key SessionMiddleware signs cookies with: SECRET_KEY when
+    it's been set to something real, otherwise a random one generated
+    once and kept in data/session.key (so sessions survive restarts)."""
+    if settings.secret_key.strip() not in _PLACEHOLDER_SECRET_KEYS:
+        return settings.secret_key
+    path = settings.session_key_path
+    try:
+        existing = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        existing = ""
+    # An empty/truncated file (crash mid-write, or `> session.key` to log
+    # everyone out) must never be trusted: an empty key signs forgeable
+    # cookies. Regenerate instead.
+    if len(existing) >= 32:
+        return existing
+    key = secrets.token_hex(32)
+    tmp = path.with_name(path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(key)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, path)
+    logging.getLogger("zonecast").warning(
+        "SECRET_KEY non impostata (valore di esempio): generata una chiave casuale in %s", path
+    )
+    return key

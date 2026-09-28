@@ -4,7 +4,7 @@ APP_VERSION and add a CHANGELOG entry whenever a user-visible change
 ships — this is the only place either needs updating.
 """
 
-APP_VERSION = "1.5.7"
+APP_VERSION = "1.5.8"
 
 # Newest first. Each entry: version, date (YYYY-MM-DD), list of
 # one-line change descriptions. English, matching the UI's default
@@ -12,6 +12,17 @@ APP_VERSION = "1.5.7"
 # through app/static/js/i18n.js, so non-English viewers see it in
 # English regardless of their selected language.
 CHANGELOG = [
+    {
+        "version": "1.5.8",
+        "date": "2026-09-28",
+        "changes": [
+            "Security: names, file names and log messages are now always shown as text — before, a crafted value (even a username typed at the login form, which ends up in the Log tab) could run script in an admin's browser",
+            "Security (native install): the app's code and the sudo-allowed network/time helper are no longer writable by the service user; the helper moved to /usr/local/sbin (re-run deploy/install_ubuntu.sh to apply). The Docker image likewise keeps its code root-owned",
+            "Schedules with invalid days of the week, a zone/speaker destination without a target, or a start date after the end date are now rejected; a schedule that can't be loaded no longer stops the service from starting",
+            "Configuration import: bundles containing links or paths outside the staging folder are refused; restoring no longer risks corrupting the imported database with leftover SQLite WAL files, and the pre-import safety copy now includes not-yet-checkpointed changes",
+            "If SECRET_KEY is left at its example value, a random session key is generated and kept in data/session.key instead of signing session cookies with a publicly known key",
+        ],
+    },
     {
         "version": "1.5.7",
         "date": "2026-09-25",

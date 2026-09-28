@@ -43,10 +43,26 @@ def has_pending() -> bool:
     return STAGING_DIR.exists()
 
 
+def _sidecars(db_path: Path) -> list[Path]:
+    """SQLite's WAL-mode companion files (see database.py)."""
+    return [db_path.with_name(db_path.name + suffix) for suffix in ("-wal", "-shm")]
+
+
 def _backup_current() -> None:
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     if settings.db_path.exists():
-        shutil.copy2(settings.db_path, settings.db_path.with_name(f"{settings.db_path.name}.pre-import-{ts}"))
+        # Through SQLite's backup API, not a file copy: the process that
+        # staged the import was killed with os._exit, so recent commits
+        # can still be sitting in the -wal file rather than the .db.
+        from .bundle import _snapshot_sqlite
+        backup_path = settings.db_path.with_name(f"{settings.db_path.name}.pre-import-{ts}")
+        try:
+            backup_path.write_bytes(_snapshot_sqlite(settings.db_path))
+        except Exception:
+            logger.exception("Backup SQLite pre-import non riuscito — copio i file così come sono")
+            for src in (settings.db_path, *_sidecars(settings.db_path)):
+                if src.exists():
+                    shutil.copy2(src, backup_path.with_name(backup_path.name + src.name[len(settings.db_path.name):]))
     if settings.secret_key_path.exists():
         shutil.copy2(settings.secret_key_path, settings.secret_key_path.with_name(f"secret.key.pre-import-{ts}"))
     for d, label in ((settings.media_dir, "media"), (settings.backups_dir, "backups")):
@@ -67,6 +83,10 @@ def apply_pending_import() -> None:
     staged_db = STAGING_DIR / "data" / "zonecast.db"
     if staged_db.exists():
         settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # A -wal/-shm left over from the OLD database would be replayed
+        # on top of the imported one at first open, corrupting it.
+        for sidecar in _sidecars(settings.db_path):
+            sidecar.unlink(missing_ok=True)
         shutil.move(str(staged_db), str(settings.db_path))
 
     staged_key = STAGING_DIR / "data" / "secret.key"

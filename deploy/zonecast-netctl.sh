@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Narrow, auditable root helper for ZoneCast's NTP/timezone/network
 # settings (Sistema tab, native install only). Invoked by the app via
-# `sudo -n /opt/zonecast/deploy/zonecast-netctl.sh <subcommand> ...`,
-# authorized by a NOPASSWD sudoers rule scoped to exactly this script
-# path (see install_ubuntu.sh) — the app process itself stays non-root.
+# `sudo -n /usr/local/sbin/zonecast-netctl <subcommand> ...` (where
+# install_ubuntu.sh installs it, root-owned), authorized by a NOPASSWD
+# sudoers rule scoped to exactly that path — the app process itself
+# stays non-root.
 #
 # Network changes never take effect unconfirmed: `net-apply` writes the
 # new config, applies it immediately, and forks a detached watchdog

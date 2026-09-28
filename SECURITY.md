@@ -42,11 +42,14 @@ care about:
   deployment (`deploy/zonecast.service`) deliberately runs the app
   process *without* `NoNewPrivileges`/`ProtectSystem=strict`/a
   narrowed `CapabilityBoundingSet`, because those settings break the
-  app's `sudo -n` escalation path to `deploy/zonecast-netctl.sh` (see
-  the extensive comment in that service file for exactly why). That
-  helper script is the only thing the app user can run as root
-  (enforced via a dedicated `/etc/sudoers.d/zonecast-netctl` entry,
-  not broad `sudo` access), and it only accepts a fixed set of
+  app's `sudo -n` escalation path to `/usr/local/sbin/zonecast-netctl`
+  (installed from `deploy/zonecast-netctl.sh`; see the extensive comment
+  in that service file for exactly why). That helper script is the only
+  thing the app user can run as root (enforced via a dedicated
+  `/etc/sudoers.d/zonecast-netctl` entry, not broad `sudo` access); it
+  lives in a root-owned directory and the app's own code and venv are
+  root-owned too, so the service user can only write to `data/`,
+  `media/` and `backups/`. It only accepts a fixed set of
   subcommands (network apply/confirm, NTP servers, timezone, manual
   clock set) — review it before trusting it on a system where the
   `zonecast` user's integrity matters to you.

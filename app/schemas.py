@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, date, time
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 from .models import UserRole, SpeakerStatus, TargetType, PlaybackSource, PlaybackStatus
 
@@ -363,6 +363,23 @@ class PlaybackLogOut(BaseModel):
 
 
 # ---------- Schedules ----------
+_WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
+def _normalize_days_of_week(value: str) -> str:
+    """'Mon, tue,MON' -> 'mon,tue'. Rejected here rather than later
+    because APScheduler's CronTrigger raises on anything else — and a bad
+    value that reached the DB used to stop the whole app from starting
+    (every enabled schedule is loaded at startup)."""
+    days = {d.strip().lower() for d in value.split(",") if d.strip()}
+    unknown = days.difference(_WEEKDAYS)
+    if unknown:
+        raise ValueError(f"Giorni non validi: {', '.join(sorted(unknown))} (ammessi: {','.join(_WEEKDAYS)})")
+    if not days:
+        raise ValueError("Selezionare almeno un giorno della settimana")
+    return ",".join(d for d in _WEEKDAYS if d in days)
+
+
 class ScheduleBase(BaseModel):
     name: str
     media_id: int
@@ -386,7 +403,21 @@ class ScheduleBase(BaseModel):
 
 
 class ScheduleCreate(ScheduleBase):
-    pass
+    # Validators live here and on ScheduleUpdate, not on ScheduleBase:
+    # ScheduleOut inherits the base, and a legacy row that predates them
+    # must still be listable (so it can be fixed from the UI).
+    @field_validator("days_of_week")
+    @classmethod
+    def _validate_days(cls, v: str) -> str:
+        return _normalize_days_of_week(v)
+
+    @model_validator(mode="after")
+    def _validate_target_and_dates(self):
+        if self.target_type != TargetType.all and self.target_id is None:
+            raise ValueError("target_id è obbligatorio quando la destinazione è una zona o un altoparlante")
+        if self.start_date and self.end_date and self.start_date > self.end_date:
+            raise ValueError("La data di inizio è successiva alla data di fine")
+        return self
 
 
 class ScheduleUpdate(BaseModel):
@@ -408,6 +439,21 @@ class ScheduleUpdate(BaseModel):
     def _validate_holiday_country(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and not re.fullmatch(r"[A-Z]{2}", v):
             raise ValueError("holiday_country deve essere un codice ISO 3166-1 alpha-2 (es. IT, US, FR)")
+        return v
+
+    @field_validator("days_of_week")
+    @classmethod
+    def _validate_days(cls, v: Optional[str]) -> Optional[str]:
+        return None if v is None else _normalize_days_of_week(v)
+
+    # Optional here only so they can be omitted; an explicit null would
+    # reach NOT NULL columns (or silently turn the job into "every day").
+    @field_validator("name", "media_id", "target_type", "time_of_day", "days_of_week",
+                     "exclude_holidays", "holidays_only", "holiday_country", "enabled", mode="before")
+    @classmethod
+    def _reject_explicit_null(cls, v):
+        if v is None:
+            raise ValueError("Il campo non può essere nullo")
         return v
 
 

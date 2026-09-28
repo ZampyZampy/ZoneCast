@@ -38,6 +38,16 @@ function fmtDateTime(iso) {
     return new Date(hasOffset ? iso : `${iso}Z`).toLocaleString();
 }
 
+// Every server-provided value that goes into an innerHTML template must
+// pass through esc(): names, filenames and descriptions are free text,
+// and log messages even quote usernames typed at the (unauthenticated)
+// login form.
+function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, ch => (
+        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
+    ));
+}
+
 // ---------- Tabs ----------
 document.querySelectorAll('#main-tabs .nav-item').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -98,8 +108,8 @@ async function loadVersion() {
         link.textContent = `v${v.version}`;
         document.getElementById('changelog-body').innerHTML = v.changelog.map(entry => `
             <div class="mb-3">
-                <div class="fw-semibold">v${entry.version} <span class="text-muted small fw-normal">${entry.date}</span></div>
-                <ul class="small mb-0">${entry.changes.map(c => `<li>${c}</li>`).join('')}</ul>
+                <div class="fw-semibold">v${esc(entry.version)} <span class="text-muted small fw-normal">${esc(entry.date)}</span></div>
+                <ul class="small mb-0">${entry.changes.map(c => `<li>${esc(c)}</li>`).join('')}</ul>
             </div>`).join('');
     } catch (e) { link.textContent = '?'; }
 }
@@ -117,8 +127,8 @@ async function loadStartupAlerts() {
         const items = await api('/api/system/alerts');
         if (!items.length) return;
         container.innerHTML = items.map(a => `
-            <div class="alert alert-${a.severity} alert-dismissible fade show" role="alert">
-                <i class="bi bi-exclamation-triangle-fill me-2"></i>${a.message}
+            <div class="alert alert-${esc(a.severity)} alert-dismissible fade show" role="alert">
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>${esc(a.message)}
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>`).join('');
         try { sessionStorage.setItem('zc_alerts_shown', '1'); } catch (e) { /* non-fatal */ }
@@ -177,18 +187,18 @@ document.addEventListener('zc:languagechange', () => {
 });
 
 function statusDot(status) {
-    return `<span class="status-dot status-${status}" title="${status}"></span>`;
+    return `<span class="status-dot status-${esc(status)}" title="${esc(status)}"></span>`;
 }
 function renderSpeakers() {
     const zoneName = (id) => state.zones.find(z => z.id === id)?.name || '—';
     document.getElementById('speakers-body').innerHTML = state.speakers.map(s => `
         <tr>
-            <td>${statusDot(s.status)}<span class="status-dot-label">${s.status}</span></td>
-            <td>${s.name}</td>
-            <td>${s.ip_address}</td>
-            <td class="col-secondary">${zoneName(s.zone_id)}</td>
-            <td class="col-secondary"><code>${s.own_multicast_address}:${s.own_multicast_port}</code></td>
-            <td class="col-secondary">${[s.brand, s.model].filter(Boolean).join(' ') || '—'}</td>
+            <td>${statusDot(s.status)}<span class="status-dot-label">${esc(s.status)}</span></td>
+            <td>${esc(s.name)}</td>
+            <td>${esc(s.ip_address)}</td>
+            <td class="col-secondary">${esc(zoneName(s.zone_id))}</td>
+            <td class="col-secondary"><code>${esc(s.own_multicast_address)}:${esc(s.own_multicast_port)}</code></td>
+            <td class="col-secondary">${esc([s.brand, s.model].filter(Boolean).join(' ') || '—')}</td>
             <td class="table-actions text-end">
                 <button class="btn btn-sm btn-outline-secondary" onclick="pingSpeaker(${s.id}, this)"><i class="bi bi-broadcast"></i><span class="btn-label"> ${t('action.ping')}</span></button>
                 <button class="btn btn-sm btn-outline-secondary" onclick="previewMulticast(${s.id})" title="${t('speakers.previewTitle')}"><i class="bi bi-eye"></i><span class="btn-label"> ${t('action.preview')}</span></button>
@@ -209,9 +219,9 @@ function renderSpeakers() {
 function renderZones() {
     document.getElementById('zones-body').innerHTML = state.zones.map(z => `
         <tr>
-            <td>${z.name}</td>
-            <td class="col-secondary">${z.description || ''}</td>
-            <td class="col-secondary"><code>${z.multicast_address}:${z.multicast_port}</code></td>
+            <td>${esc(z.name)}</td>
+            <td class="col-secondary">${esc(z.description)}</td>
+            <td class="col-secondary"><code>${esc(z.multicast_address)}:${esc(z.multicast_port)}</code></td>
             <td>${state.speakers.filter(s => s.zone_id === z.id).length}</td>
             <td class="table-actions text-end">
                 <button class="btn btn-sm btn-outline-primary" onclick="editZone(${z.id})"><i class="bi bi-pencil"></i><span class="btn-label"> ${t('action.edit')}</span></button>
@@ -253,7 +263,7 @@ function mediaAnalysisCell(m) {
 function renderMedia() {
     document.getElementById('media-body').innerHTML = state.media.map(m => `
         <tr>
-            <td>${m.original_filename}</td>
+            <td>${esc(m.original_filename)}</td>
             <td>${m.duration_seconds.toFixed(1)}s</td>
             <td class="col-secondary">${(m.size_bytes / 1024 / 1024).toFixed(2)} MB</td>
             <td class="col-secondary">${fmtDateTime(m.uploaded_at)}</td>
@@ -281,23 +291,23 @@ async function normalizeMedia(id) {
 function dayLabel(code) { return t(`schedules.${code}`); }
 function targetLabel(target) {
     if (target.target_type === 'all') return `<span class="badge bg-primary badge-target">${t('common.allSpeakers')}</span>`;
-    if (target.target_type === 'zone') return `<span class="badge bg-info badge-target">${t('common.zone')}: ${state.zones.find(z => z.id === target.target_id)?.name || target.target_id}</span>`;
-    return `<span class="badge bg-secondary badge-target">${state.speakers.find(s => s.id === target.target_id)?.name || target.target_id}</span>`;
+    if (target.target_type === 'zone') return `<span class="badge bg-info badge-target">${t('common.zone')}: ${esc(state.zones.find(z => z.id === target.target_id)?.name || target.target_id)}</span>`;
+    return `<span class="badge bg-secondary badge-target">${esc(state.speakers.find(s => s.id === target.target_id)?.name || target.target_id)}</span>`;
 }
 function holidayLabel(s) {
     if (!s.holidays_only && !s.exclude_holidays) return t('schedules.holidayNone');
     const mode = s.holidays_only ? t('schedules.holidayOnly') : t('schedules.holidayExclude');
-    return `${mode} (${s.holiday_country || 'IT'})`;
+    return `${mode} (${esc(s.holiday_country || 'IT')})`;
 }
 
 function renderSchedules() {
     document.getElementById('schedules-body').innerHTML = state.schedules.map(s => `
         <tr>
-            <td>${s.name}</td>
-            <td class="col-secondary">${state.media.find(m => m.id === s.media_id)?.original_filename || s.media_id}</td>
+            <td>${esc(s.name)}</td>
+            <td class="col-secondary">${esc(state.media.find(m => m.id === s.media_id)?.original_filename || s.media_id)}</td>
             <td>${targetLabel(s)}</td>
-            <td>${s.time_of_day.slice(0, 5)}</td>
-            <td class="col-secondary">${s.days_of_week.split(',').map(dayLabel).join(' ')}</td>
+            <td>${esc(s.time_of_day.slice(0, 5))}</td>
+            <td class="col-secondary">${esc(s.days_of_week.split(',').map(dayLabel).join(' '))}</td>
             <td class="col-secondary">${holidayLabel(s)}</td>
             <td>${s.enabled ? '✅' : '⏸️'}</td>
             <td class="table-actions text-end">
@@ -310,8 +320,8 @@ function renderSchedules() {
 function renderUsers() {
     document.getElementById('users-body').innerHTML = state.users.map(u => `
         <tr>
-            <td>${u.username}${u.is_protected ? ' <span class="badge bg-secondary">default</span>' : ''}</td>
-            <td>${u.full_name || ''}</td><td>${u.role}</td>
+            <td>${esc(u.username)}${u.is_protected ? ' <span class="badge bg-secondary">default</span>' : ''}</td>
+            <td>${esc(u.full_name)}</td><td>${esc(u.role)}</td>
             <td class="text-end table-actions">
                 <button class="btn btn-sm btn-outline-primary" onclick="editUser(${u.id})"><i class="bi bi-pencil"></i><span class="btn-label"> ${t('action.edit')}</span></button>
                 ${u.is_protected ? '' : `<button class="btn btn-sm btn-outline-danger" onclick="deleteUser(${u.id})"><i class="bi bi-trash"></i><span class="btn-label"> ${t('action.delete')}</span></button>`}
@@ -381,7 +391,7 @@ function initSortableTables() {
 initSortableTables();
 
 function populateMediaSelects() {
-    const opts = state.media.map(m => `<option value="${m.id}">${m.original_filename}</option>`).join('');
+    const opts = state.media.map(m => `<option value="${m.id}">${esc(m.original_filename)}</option>`).join('');
     document.getElementById('play-media').innerHTML = opts;
     document.getElementById('schedule-media').innerHTML = opts;
 }
@@ -389,7 +399,7 @@ function populateZoneSelects() {
     const sel = document.getElementById('speaker-zone');
     const current = sel.value;
     sel.innerHTML = `<option value="">${t('common.none')}</option>` +
-        state.zones.map(z => `<option value="${z.id}">${z.name}</option>`).join('');
+        state.zones.map(z => `<option value="${z.id}">${esc(z.name)}</option>`).join('');
     if ([...sel.options].some(o => o.value === current)) sel.value = current;
 }
 function populateTargetPickers() {
@@ -406,7 +416,7 @@ function refreshTargetIdOptions(prefix) {
     if (type === 'all') { wrap.classList.add('d-none'); return; }
     wrap.classList.remove('d-none');
     const items = type === 'zone' ? state.zones : state.speakers;
-    sel.innerHTML = items.map(i => `<option value="${i.id}">${i.name}</option>`).join('');
+    sel.innerHTML = items.map(i => `<option value="${i.id}">${esc(i.name)}</option>`).join('');
 }
 
 // ---------- Playback ----------
@@ -437,10 +447,10 @@ async function loadHistory() {
     document.getElementById('history-body').innerHTML = rows.map(r => `
         <tr>
             <td>${fmtDateTime(r.started_at)}</td>
-            <td>${state.media.find(m => m.id === r.media_id)?.original_filename || r.media_id}</td>
-            <td>${playTargetLabel(r)}</td>
-            <td class="col-secondary">${r.source === 'schedule' ? t('play.sourceScheduled') : `${t('play.sourceManual')}${r.triggered_by_name ? ' — ' + r.triggered_by_name : ''}`}</td>
-            <td><span class="badge ${statusBadge(r.status)}">${r.status}</span></td>
+            <td>${esc(state.media.find(m => m.id === r.media_id)?.original_filename || r.media_id)}</td>
+            <td>${esc(playTargetLabel(r))}</td>
+            <td class="col-secondary">${r.source === 'schedule' ? t('play.sourceScheduled') : `${t('play.sourceManual')}${r.triggered_by_name ? ' — ' + esc(r.triggered_by_name) : ''}`}</td>
+            <td><span class="badge ${statusBadge(r.status)}">${esc(r.status)}</span></td>
             <td>${r.status === 'running' ? `<button class="btn btn-sm btn-outline-danger" onclick="stopPlayback(${r.id})"><i class="bi bi-stop-circle"></i><span class="btn-label"> ${t('action.stop')}</span></button>` : ''}</td>
         </tr>`).join('') || `<tr><td colspan="6" class="text-muted">${t('empty.playbacks')}</td></tr>`;
 }
@@ -515,12 +525,12 @@ async function refreshBackups(id) {
         document.getElementById('backups-body').innerHTML = backups.map(b => `
             <tr>
                 <td>${fmtDateTime(b.created_at)}</td>
-                <td>${b.format}</td>
+                <td>${esc(b.format)}</td>
                 <td class="col-secondary">${(b.size_bytes / 1024).toFixed(1)} KB</td>
-                <td class="col-secondary">${b.created_by_name || '—'}</td>
+                <td class="col-secondary">${esc(b.created_by_name || '—')}</td>
                 <td class="text-end table-actions">
                     <a class="btn btn-sm btn-outline-secondary" href="/api/backups/${b.id}/download"><i class="bi bi-download"></i><span class="btn-label"> ${t('action.download')}</span></a>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteBackup(${b.id}, ${id})"><i class="bi bi-trash"></i><span class="btn-label"> ${t('action.discard')}</span></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteBackup(${b.id}, ${Number(id)})"><i class="bi bi-trash"></i><span class="btn-label"> ${t('action.discard')}</span></button>
                 </td>
             </tr>`).join('') || `<tr><td colspan="5" class="text-muted">${t('empty.backups')}</td></tr>`;
     } catch (e) { toast(e.message, 'danger'); }
@@ -1046,7 +1056,7 @@ async function loadSystemTime() {
                 try {
                     const zones = await api('/api/system/time/timezones');
                     const sel = document.getElementById('sys-timezone-select');
-                    sel.innerHTML = zones.map(z => `<option value="${z}">${z}</option>`).join('');
+                    sel.innerHTML = zones.map(z => `<option value="${esc(z)}">${esc(z)}</option>`).join('');
                     sel.value = status.timezone;
                 } catch (e) { /* leave select empty, non-fatal */ }
             }
@@ -1054,7 +1064,7 @@ async function loadSystemTime() {
         }
     } catch (e) {
         document.getElementById('sys-local-time').textContent = t('system.notAvailable');
-        document.getElementById('sys-sync-status').innerHTML = `<span class="text-danger small">${e.message}</span>`;
+        document.getElementById('sys-sync-status').innerHTML = `<span class="text-danger small">${esc(e.message)}</span>`;
     }
 }
 document.getElementById('sys-manual-time-save').addEventListener('click', async () => {
@@ -1110,7 +1120,7 @@ async function loadNetworkConfig() {
     try {
         const n = await api('/api/system/network');
         const sel = document.getElementById('net-interface');
-        sel.innerHTML = n.available_interfaces.map(i => `<option value="${i}">${i}</option>`).join('');
+        sel.innerHTML = n.available_interfaces.map(i => `<option value="${esc(i)}">${esc(i)}</option>`).join('');
         sel.value = n.interface;
         document.getElementById('net-address').value = n.address_cidr || '';
         document.getElementById('net-gateway').value = n.gateway || '';
@@ -1180,9 +1190,9 @@ async function loadLogs() {
         document.getElementById('logs-body').innerHTML = rows.map(r => `
             <tr>
                 <td class="text-nowrap small">${fmtDateTime(r.created_at)}</td>
-                <td><span class="badge ${LEVEL_BADGE[r.level] || 'bg-secondary'}">${r.level}</span></td>
-                <td class="small text-muted col-secondary">${r.logger_name}</td>
-                <td class="small">${r.message}</td>
+                <td><span class="badge ${LEVEL_BADGE[r.level] || 'bg-secondary'}">${esc(r.level)}</span></td>
+                <td class="small text-muted col-secondary">${esc(r.logger_name)}</td>
+                <td class="small">${esc(r.message)}</td>
             </tr>`).join('') || `<tr><td colspan="4" class="text-muted">${t('empty.events')}</td></tr>`;
     } catch (e) { toast(e.message, 'danger'); }
 }
@@ -1234,11 +1244,11 @@ async function loadBackupArchive() {
         document.getElementById('backup-archive-body').innerHTML = rows.map(b => `
             <tr>
                 <td>${fmtDateTime(b.created_at)}</td>
-                <td>${b.speaker_name || '—'}${b.speaker_exists ? '' : ` <span class="badge bg-secondary" title="${t('backups.speakerDeleted')}">${t('backups.archived')}</span>`}</td>
-                <td class="col-secondary">${b.speaker_ip || '—'}</td>
-                <td>${b.format}</td>
+                <td>${esc(b.speaker_name || '—')}${b.speaker_exists ? '' : ` <span class="badge bg-secondary" title="${t('backups.speakerDeleted')}">${t('backups.archived')}</span>`}</td>
+                <td class="col-secondary">${esc(b.speaker_ip || '—')}</td>
+                <td>${esc(b.format)}</td>
                 <td class="col-secondary">${(b.size_bytes / 1024).toFixed(1)} KB</td>
-                <td class="col-secondary">${b.created_by_name || '—'}</td>
+                <td class="col-secondary">${esc(b.created_by_name || '—')}</td>
                 <td class="text-end table-actions">
                     <a class="btn btn-sm btn-outline-secondary" href="/api/backups/${b.id}/download"><i class="bi bi-download"></i><span class="btn-label"> ${t('action.download')}</span></a>
                     <button class="btn btn-sm btn-outline-danger" onclick="deleteBackup(${b.id})"><i class="bi bi-trash"></i><span class="btn-label"> ${t('action.discard')}</span></button>

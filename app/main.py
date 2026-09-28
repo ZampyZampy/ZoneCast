@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from .config import settings, BASE_DIR
+from .config import settings, BASE_DIR, session_secret
 from .database import Base, engine, SessionLocal, get_db
 from .models import User, UserRole
 from .security import hash_password
@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
-app.add_middleware(SessionMiddleware, secret_key=settings.secret_key, max_age=settings.session_max_age_seconds)
+app.add_middleware(SessionMiddleware, secret_key=session_secret(), max_age=settings.session_max_age_seconds)
 
 
 @app.middleware("http")

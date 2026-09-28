@@ -65,7 +65,9 @@ def build_export(*, password: str, db_path: Path, secret_key_path: Path, media_d
     # just a weak/guessable one) — the caller decides whether to warn
     # about that; this function doesn't force a minimum.
     tar_buf = io.BytesIO()
-    with tarfile.open(fileobj=tar_buf, mode="w:gz") as tar:
+    # dereference: hard/symbolic links an operator may have put in media/
+    # or backups/ are stored as plain files — extract_bundle refuses links.
+    with tarfile.open(fileobj=tar_buf, mode="w:gz", dereference=True) as tar:
         db_bytes = _snapshot_sqlite(db_path)
         info = tarfile.TarInfo("data/zonecast.db")
         info.size = len(db_bytes)
@@ -106,12 +108,19 @@ def extract_bundle(*, data: bytes, password: str, target_root: Path) -> list[str
         raise ValueError("Password errata o file corrotto") from exc
 
     target_root.mkdir(parents=True, exist_ok=True)
-    extracted = []
+    root = target_root.resolve()
     with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:gz") as tar:
-        for member in tar.getmembers():
-            member_path = (target_root / member.name).resolve()
-            if not str(member_path).startswith(str(target_root.resolve())):
+        members = tar.getmembers()
+        for member in members:
+            # build_export only ever writes regular files: anything else
+            # (symlinks, hardlinks, devices) can redirect later members
+            # outside target_root, so it's refused outright.
+            if not (member.isfile() or member.isdir()):
+                raise ValueError(f"Elemento non ammesso nel bundle: {member.name}")
+            if not (root / member.name).resolve().is_relative_to(root):
                 raise ValueError(f"Percorso non sicuro nel bundle: {member.name}")
-        tar.extractall(path=target_root)
-        extracted = [m.name for m in tar.getmembers()]
-    return extracted
+        if hasattr(tarfile, "data_filter"):  # Python 3.11.4+/3.12+
+            tar.extractall(path=target_root, filter="data")
+        else:
+            tar.extractall(path=target_root)
+        return [m.name for m in members]

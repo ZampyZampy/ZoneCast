@@ -139,8 +139,13 @@ def load_all_schedules():
     db = SessionLocal()
     try:
         for sched in db.query(Schedule).filter(Schedule.enabled.is_(True)).all():
-            add_or_update_job(sched)
-        logger.info("Loaded %d active schedules", len(get_scheduler().get_jobs()))
+            # One unloadable row (e.g. saved before days_of_week was
+            # validated) must not take the whole PA scheduler down with it.
+            try:
+                add_or_update_job(sched)
+            except Exception:
+                logger.exception("Schedulazione %s (%s) non caricata: configurazione non valida", sched.id, sched.name)
+        logger.info("Loaded %d active schedules", len([j for j in get_scheduler().get_jobs() if j.id.startswith("schedule-")]))
     finally:
         db.close()
 

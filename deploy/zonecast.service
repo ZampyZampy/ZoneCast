@@ -38,9 +38,11 @@ AmbientCapabilities=CAP_SYS_TIME CAP_NET_BIND_SERVICE
 #     restore to saved user id" without it. AmbientCapabilities above
 #     still works fine unconstrained — ambient caps just need to be a
 #     subset of the (now-default/full) bounding set, which they are.
-# The app process itself still can't write outside ReadWritePaths as a
-# non-root user regardless — that's plain Unix file permissions, not
-# something these settings were adding on top of for this app.
+# What keeps the app process from writing outside its data is plain Unix
+# ownership instead: install_ubuntu.sh leaves the code, the venv and the
+# sudo-allowed helper (/usr/local/sbin/zonecast-netctl) owned by root, and
+# only data/, media/ and backups/ owned by the service user. ReadWritePaths
+# below documents that set; without ProtectSystem it doesn't enforce it.
 ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/opt/zonecast/data /opt/zonecast/media /opt/zonecast/backups

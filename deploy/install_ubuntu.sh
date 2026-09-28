@@ -64,18 +64,36 @@ python3 -m venv "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install --upgrade pip
 "$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt"
 
-chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"
+# Bytecode compilato qui (da root) perché a runtime l'utente di servizio
+# non può scrivere __pycache__ nella cartella del codice.
+"$INSTALL_DIR/venv/bin/python" -m compileall -q "$INSTALL_DIR/app"
+
+echo "== Permessi =="
+# Codice, venv e deploy/ restano di root: l'utente di servizio scrive SOLO
+# nei dati. Se potesse modificare il codice o la cartella dello script
+# autorizzato in sudo, qualsiasi falla nell'app diventerebbe accesso root.
+chown -R root:root "$INSTALL_DIR"
+# 750 con gruppo del servizio: l'app attraversa la cartella, gli altri
+# utenti locali no (il DB contiene hash delle password e segreti 2FA).
+chown root:"$SERVICE_USER" "$INSTALL_DIR"
+chmod 750 "$INSTALL_DIR"
+chown -R "$SERVICE_USER":"$SERVICE_USER" "$INSTALL_DIR"/data "$INSTALL_DIR"/media "$INSTALL_DIR"/backups
+chown root:"$SERVICE_USER" "$INSTALL_DIR/.env"
+chmod 640 "$INSTALL_DIR/.env"
 
 echo "== Helper privilegiato (NTP/fuso orario/rete dal pannello Sistema) =="
-chmod 750 "$INSTALL_DIR/deploy/zonecast-netctl.sh"
-chown root:root "$INSTALL_DIR/deploy/zonecast-netctl.sh"
-cat > /etc/sudoers.d/zonecast-netctl <<EOF
+install -o root -g root -m 750 "$INSTALL_DIR/deploy/zonecast-netctl.sh" /usr/local/sbin/zonecast-netctl
+# Validato su un file temporaneo e installato solo se corretto: un file
+# malformato in /etc/sudoers.d romperebbe sudo per tutto il sistema.
+SUDOERS_TMP=$(mktemp)
+cat > "$SUDOERS_TMP" <<EOF
 # Consente SOLO a $SERVICE_USER di eseguire, senza password, questo
 # specifico script (mai comandi arbitrari) — vedi deploy/zonecast-netctl.sh.
-$SERVICE_USER ALL=(root) NOPASSWD: $INSTALL_DIR/deploy/zonecast-netctl.sh
+$SERVICE_USER ALL=(root) NOPASSWD: /usr/local/sbin/zonecast-netctl
 EOF
-chmod 440 /etc/sudoers.d/zonecast-netctl
-visudo -c -f /etc/sudoers.d/zonecast-netctl
+visudo -c -f "$SUDOERS_TMP"
+install -o root -g root -m 440 "$SUDOERS_TMP" /etc/sudoers.d/zonecast-netctl
+rm -f "$SUDOERS_TMP"
 
 echo "== Servizio systemd =="
 cp "$INSTALL_DIR/deploy/zonecast.service" /etc/systemd/system/zonecast.service
