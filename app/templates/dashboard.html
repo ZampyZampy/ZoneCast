@@ -739,6 +739,28 @@
 {% endif %}
 
 <!-- PASSWORD CONFIRMATION (replaces window.prompt, which can't mask a password) -->
+<div class="modal fade" id="play-conflict-modal" tabindex="-1" aria-labelledby="play-conflict-title">
+    <div class="modal-dialog modal-dialog-scrollable modal-fullscreen-sm-down">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title" id="play-conflict-title" data-i18n="play.conflictTitle">Some speakers are already playing</h5><button type="button" class="btn-close" data-bs-dismiss="modal" data-i18n-attr="aria-label" data-i18n="common.close" aria-label="Close"></button></div>
+            <div class="modal-body">
+                <p id="play-conflict-intro" class="mb-2"></p>
+                <ul id="play-conflict-list" class="list-group mb-3"></ul>
+                <div id="play-conflict-upcoming-wrap" class="d-none">
+                    <p class="mb-1 fw-medium" data-i18n="play.conflictUpcoming">Due while this plays (they will wait for it):</p>
+                    <ul id="play-conflict-upcoming" class="small mb-3"></ul>
+                </div>
+                <p class="small text-muted mb-0" data-i18n="play.conflictOverlapHint">"Play alongside" leaves them playing: on the shared speakers the device decides which one is heard.</p>
+            </div>
+            <div class="modal-footer flex-wrap">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" id="play-conflict-cancel" data-i18n="common.cancel">Cancel</button>
+                <button type="button" class="btn btn-outline-primary" id="play-conflict-overlap" data-i18n="play.conflictOverlap">Play alongside</button>
+                <button type="button" class="btn btn-danger" id="play-conflict-stop" data-i18n="play.conflictStop">Stop them and play</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="modal fade" id="password-prompt-modal" tabindex="-1">
     <div class="modal-dialog modal-sm">
         <div class="modal-content">

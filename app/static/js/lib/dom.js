@@ -66,7 +66,8 @@ export async function withBusy(button, fn, { busyLabel } = {}) {
 export async function run(fn, { button, success, busyLabel } = {}) {
     try {
         const result = await withBusy(button, fn, { busyLabel });
-        if (success) toast(typeof success === 'function' ? success(result) : success);
+        const message = typeof success === 'function' ? success(result) : success;
+        if (message) toast(message);
         return result;
     } catch (err) {
         toast(err.message, 'danger');

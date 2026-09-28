@@ -1,6 +1,6 @@
 import re
 from datetime import datetime, date, time
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .errors import invalid
@@ -353,6 +353,10 @@ class PlayRequest(BaseModel):
     media_id: int
     target_type: TargetType
     target_id: Optional[int] = None  # required for speaker/zone, ignored for all
+    # What to do when some of these speakers are already playing (see
+    # services/player.play): the dashboard sends "ask" and then the
+    # user's choice. Omitted = pre-1.6 behaviour ("overlap").
+    on_conflict: Optional[Literal["ask", "stop", "overlap"]] = None
 
     @field_validator("target_id")
     @classmethod

@@ -4,8 +4,11 @@ mobile drawer and the admin tabs."""
 import uuid
 
 import pyotp
+import pytest
 
 from .conftest import add_media, login, open_tab
+
+expect = pytest.importorskip("playwright.sync_api").expect
 
 
 def _uid(prefix):
@@ -281,3 +284,43 @@ def test_zone_members_checklist_filters_and_keeps_the_selection(page, server):
     zone = next(z for z in server.api.get("/api/zones").json() if z["name"] == f"members-{tag}")
     assert sorted(zone["speaker_ids"]) == sorted(ids[:2])
     assert page.errors == []
+
+
+def test_live_announcement_on_busy_speakers_asks_first(page, server):
+    tag = uuid.uuid4().hex[:6]
+    spk = server.api.post("/api/speakers", json={"name": f"shared-{tag}", "ip_address": "198.18.95.1",
+                                                 "own_multicast_address": "239.254.95.1", "brand": "other"}).json()
+    busy_zone = server.api.post("/api/zones", json={
+        "name": f'busy-{tag}<img src=x onerror="window.__xss=1">', "multicast_address": "239.255.95.1",
+        "speaker_ids": [spk["id"]]}).json()
+    new_zone = server.api.post("/api/zones", json={"name": f"new-{tag}", "multicast_address": "239.255.95.2",
+                                                   "speaker_ids": [spk["id"]]}).json()
+    media_name = _uid("long") + ".wav"
+    media_id = add_media(server, name=media_name, seconds=30)
+    running = server.api.post("/api/playback/play", json={"media_id": media_id, "target_type": "zone",
+                                                          "target_id": busy_zone["id"]}).json()
+    try:
+        login(page, server)
+        page.select_option("#play-media", label=media_name)
+        page.select_option("#play-target-type", "zone")
+        page.select_option("#play-target-id", label=new_zone["name"])
+        page.click("#play-btn")
+        page.wait_for_selector("#play-conflict-modal.show")
+        listed = page.inner_text("#play-conflict-list")
+        assert f"busy-{tag}" in listed and f"shared-{tag}" in listed and media_name in listed
+        expect(page.locator("#play-conflict-cancel")).to_be_focused()
+        page.click("#play-conflict-cancel")
+        page.wait_for_selector("#play-conflict-modal", state="hidden")
+        assert server.api.get("/api/playback/active").json()["active_log_ids"] == [running["id"]]
+
+        page.click("#play-btn")
+        page.wait_for_selector("#play-conflict-modal.show")
+        page.click("#play-conflict-stop")
+        page.wait_for_selector("#toast-container .alert-success")
+        active = server.api.get("/api/playback/active").json()["active_log_ids"]
+        assert running["id"] not in active and len(active) == 1
+        assert page.evaluate("window.__xss") is None
+        assert page.errors == []
+    finally:
+        for log_id in server.api.get("/api/playback/active").json()["active_log_ids"]:
+            server.api.post(f"/api/playback/stop/{log_id}")

@@ -45,7 +45,7 @@ from .drivers import PagingEntry, PushResult, get_driver
 logger = logging.getLogger("zonecast.multicast_provisioning")
 
 PUSH_CONCURRENCY = 4
-# Keyed by event loop like player._group_locks (tests run several loops).
+# Keyed by event loop like player._play_locks (tests run several loops).
 _push_state: dict[tuple[int, int], dict] = {}
 _push_limits: dict[int, asyncio.Semaphore] = {}
 

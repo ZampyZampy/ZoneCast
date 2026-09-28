@@ -27,6 +27,10 @@ logger = logging.getLogger("zonecast.scheduler")
 
 _scheduler: AsyncIOScheduler | None = None
 
+# A bell due during a live announcement on some of the same speakers waits
+# for it to end (up to this long) rather than cutting in or being lost.
+LIVE_WAIT_SECONDS = 60
+
 # One country per supported UI language (app/static/js/i18n.js), plus a
 # couple of common extras for "English" since it doesn't map to a single
 # country. Keys are ISO 3166-1 alpha-2 codes the `holidays` package
@@ -126,7 +130,8 @@ async def _run_schedule(schedule_id: int):
             return
 
         logger.info("Running schedule %s (%s)", schedule_id, sched.name)
-        try:
+
+        async def start():
             await player.play(
                 db,
                 media_id=sched.media_id,
@@ -135,9 +140,22 @@ async def _run_schedule(schedule_id: int):
                 source=PlaybackSource.schedule,
                 schedule_id=sched.id,
             )
+
+        try:
+            try:
+                await start()
+            except player.GroupBusyError as busy:
+                logger.info("Schedulazione %s (%s): annuncio live in corso, attendo che finisca", schedule_id, sched.name)
+                db.commit()  # don't hold a pooled connection while waiting
+                waited_from = asyncio.get_running_loop().time()
+                await player.wait_for(busy.params.get("log_ids", []), timeout=LIVE_WAIT_SECONDS)
+                await start()
+                logger.info("Schedulazione %s (%s) eseguita con %.0f s di ritardo", schedule_id, sched.name,
+                            asyncio.get_running_loop().time() - waited_from)
         except (player.TargetResolutionError, player.GroupBusyError) as exc:
-            # e.g. its audio file or zone was deleted: recorded as a failed
-            # run so the login alert and the history show it.
+            # e.g. its audio file or zone was deleted, or the announcement
+            # went on too long: recorded as a failed run so the login alert
+            # and the history show it.
             logger.warning("Schedulazione %s (%s) non eseguita: %s", schedule_id, sched.name, exc)
             player.record_failed_run(db, sched, str(exc))
     except Exception:

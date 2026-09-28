@@ -6,31 +6,51 @@ PlaybackLog entry so the dashboard can show history/status.
 """
 import asyncio
 import logging
+import time
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..errors import CodedError
 from ..database import SessionLocal
-from ..models import Media, Speaker, Zone, TargetType, PlaybackLog, PlaybackSource, PlaybackStatus
+from ..models import Media, Schedule, Speaker, User, Zone, TargetType, PlaybackLog, PlaybackSource, PlaybackStatus
+from .footprint import Footprint, footprint
 from .rtp_multicast import stream_pcm_over_rtp, StreamHandle
 from ..timeutil import utcnow
 
 logger = logging.getLogger("zonecast.player")
 
+
+@dataclass
+class _Stream:
+    """What the conflict checks need to know about a running stream."""
+    footprint: Footprint
+    group: tuple[str, int]
+    source: PlaybackSource
+    target_type: TargetType
+    label: str
+    media_name: str
+    by: str
+    started: float  # time.monotonic()
+    started_at: datetime
+    duration: float
+
+
 # Active streams keyed by PlaybackLog.id, so they can be stopped from the API.
 _active_streams: dict[int, StreamHandle] = {}
-# Which stream (PlaybackLog.id) is currently sending to each multicast
-# group, and whether it was started by a person or by a schedule — two
-# RTP flows on one group would interleave into garbled audio.
-_group_owner: dict[tuple[str, int], int] = {}
-_stream_source: dict[int, PlaybackSource] = {}
-# Serializes check -> stop -> register per group, so two requests racing
-# for the same group can't both start a stream. Keyed by event loop too:
-# an asyncio.Lock can't be shared across loops (tests run several).
-_group_locks: dict[tuple[int, str, int], asyncio.Lock] = {}
+_streams: dict[int, _Stream] = {}
+# Serializes check -> stop -> register, so two requests racing for the
+# same speakers can't both start. Keyed by event loop: an asyncio.Lock
+# can't be shared across loops (tests run several).
+_play_locks: dict[int, asyncio.Lock] = {}
+
+ON_CONFLICT = ("ask", "stop", "overlap")
+MAX_NAMES = 5
 
 INTERRUPTED_MESSAGE = "Interrotta: il servizio è stato riavviato durante la riproduzione"
 
@@ -40,9 +60,14 @@ class TargetResolutionError(CodedError):
 
 
 class GroupBusyError(CodedError):
-    """A schedule fired while someone is making a manual announcement to
-    the same group — the announcement wins, the schedule is recorded as
-    failed rather than cutting it off."""
+    """A schedule fired while someone is making a live announcement to
+    some of the same speakers — the announcement wins: the schedule waits
+    for it (see scheduler._run_schedule) instead of cutting it off."""
+
+
+class SpeakersBusyError(CodedError):
+    """A live announcement asked first (on_conflict="ask") and some of
+    its speakers are already playing: params["conflicts"] says what."""
 
 
 def resolve_target(db: Session, target_type: TargetType, target_id: Optional[int]) -> tuple[str, int, str]:
@@ -93,9 +118,7 @@ async def _run_stream(log_id: int, pcm_path: Path, mcast_addr: str, mcast_port: 
     finally:
         db.close()
         _active_streams.pop(log_id, None)
-        _stream_source.pop(log_id, None)
-        if _group_owner.get((mcast_addr, mcast_port)) == log_id:
-            del _group_owner[(mcast_addr, mcast_port)]
+        _streams.pop(log_id, None)
 
 
 async def _stop_and_wait(log_id: int, timeout: float = 2.0) -> None:
@@ -107,6 +130,32 @@ async def _stop_and_wait(log_id: int, timeout: float = 2.0) -> None:
         await asyncio.wait({handle.task}, timeout=timeout)
 
 
+def _conflict(db: Session, log_id: int, stream: _Stream, fp: Footprint) -> dict:
+    """JSON-ready description of a running stream a new one would clash
+    with, for the dashboard's "already playing" dialog."""
+    shared = stream.footprint.speakers & fp.speakers
+    names = db.scalars(select(Speaker.name).where(Speaker.id.in_(shared)).order_by(Speaker.name).limit(MAX_NAMES)).all()
+    return {
+        "log_id": log_id,
+        "source": stream.source.value,
+        "target_type": stream.target_type.value,
+        "label": stream.label,
+        "media": stream.media_name,
+        "by": stream.by,
+        "started_at": stream.started_at.isoformat(),
+        "remaining_seconds": max(0, round(stream.duration - (time.monotonic() - stream.started))),
+        "shared_count": len(shared),
+        "shared_speakers": list(names),
+    }
+
+
+def _who(db: Session, source: PlaybackSource, triggered_by_id: Optional[int], schedule_id: Optional[int]) -> str:
+    if source == PlaybackSource.schedule:
+        return db.scalar(select(Schedule.name).where(Schedule.id == schedule_id)) or ""
+    user = db.get(User, triggered_by_id) if triggered_by_id else None
+    return (user.full_name or user.username) if user else ""
+
+
 async def play(
     db: Session,
     media_id: int,
@@ -115,7 +164,16 @@ async def play(
     source: PlaybackSource = PlaybackSource.manual,
     schedule_id: Optional[int] = None,
     triggered_by_id: Optional[int] = None,
+    on_conflict: Optional[str] = None,
 ) -> PlaybackLog:
+    """Starts a stream. Whatever else is playing on the same multicast
+    group is always stopped first (two flows on one group would mix into
+    noise). Streams on OTHER groups that reach some of the same speakers:
+      - a schedule never cuts into a live announcement: GroupBusyError;
+      - a live announcement, per `on_conflict`: "ask" raises
+        SpeakersBusyError describing them, "stop" stops them first,
+        "overlap" (or None, the pre-1.6 API behaviour) plays alongside,
+        and each device then plays whichever of its groups it prefers."""
     media = db.query(Media).filter(Media.id == media_id).first()
     if not media:
         raise TargetResolutionError("playback.media_not_found", f"Audio file {media_id} not found", media_id=media_id)
@@ -124,18 +182,50 @@ async def play(
 
     mcast_addr, mcast_port, label = resolve_target(db, target_type, target_id)
     pcm_path = settings.media_dir / media.pcm_filename
+    fp = footprint(db, target_type, target_id)
+    group = (mcast_addr, mcast_port)
 
-    lock = _group_locks.setdefault((id(asyncio.get_running_loop()), mcast_addr, mcast_port), asyncio.Lock())
+    lock = _play_locks.setdefault(id(asyncio.get_running_loop()), asyncio.Lock())
     async with lock:
-        busy_id = _group_owner.get((mcast_addr, mcast_port))
-        if busy_id is not None:
-            if source == PlaybackSource.schedule and _stream_source.get(busy_id) == PlaybackSource.manual:
-                raise GroupBusyError("playback.group_busy", "Destination busy with a manual announcement")
-            # Otherwise the newest request wins: finish the old stream
-            # first so the two never overlap on the group.
-            await _stop_and_wait(busy_id)
-        return _start_stream(db, media_id, target_type, target_id, label, source, schedule_id,
-                             triggered_by_id, pcm_path, mcast_addr, mcast_port)
+        live = {lid: s for lid, s in _streams.items()
+                if lid in _active_streams and not _active_streams[lid].stop_event.is_set()}
+        clashing = {lid: s for lid, s in live.items() if s.group == group or s.footprint.intersects(fp)}
+        same_group = [lid for lid, s in live.items() if s.group == group]
+        if source == PlaybackSource.schedule:
+            blocking = [lid for lid, s in clashing.items() if s.source == PlaybackSource.manual]
+            if blocking:
+                raise GroupBusyError("playback.group_busy", "Destination busy with a live announcement", log_ids=blocking)
+            to_stop = same_group
+        elif on_conflict == "ask" and clashing:
+            conflicts = [_conflict(db, lid, s, fp) for lid, s in clashing.items()]
+            raise SpeakersBusyError(
+                "playback.speakers_busy", f"{len(conflicts)} playback(s) already running on some of these speakers.",
+                count=len(conflicts), names=", ".join(c["label"] for c in conflicts[:MAX_NAMES]), conflicts=conflicts)
+        elif on_conflict == "stop":
+            to_stop = list(dict.fromkeys([*clashing, *same_group]))
+        else:
+            to_stop = same_group
+        if source == PlaybackSource.manual and clashing and on_conflict in ("stop", "overlap"):
+            logger.warning("Riproduzione con conflitto (%s) da %s su %d flussi già in corso: %s",
+                           on_conflict, _who(db, source, triggered_by_id, schedule_id) or "?", len(clashing),
+                           ", ".join(s.label for s in clashing.values()))
+        for lid in to_stop:
+            await _stop_and_wait(lid)
+        log = _start_stream(db, media_id, target_type, target_id, label, source, schedule_id,
+                            triggered_by_id, pcm_path, mcast_addr, mcast_port)
+        _streams[log.id] = _Stream(
+            footprint=fp, group=group, source=source, target_type=TargetType(target_type), label=label,
+            media_name=media.original_filename, by=_who(db, source, triggered_by_id, schedule_id),
+            started=time.monotonic(), started_at=log.started_at, duration=media.duration_seconds or 0.0,
+        )
+        return log
+
+
+async def wait_for(log_ids: list[int], timeout: float) -> None:
+    """Waits (at most `timeout` s) for these streams to end."""
+    tasks = {h.task for lid in log_ids if (h := _active_streams.get(lid)) and h.task}
+    if tasks:
+        await asyncio.wait(tasks, timeout=timeout)
 
 
 def _start_stream(db, media_id, target_type, target_id, label, source, schedule_id,
@@ -156,8 +246,6 @@ def _start_stream(db, media_id, target_type, target_id, label, source, schedule_
 
     handle = StreamHandle()
     _active_streams[log.id] = handle
-    _stream_source[log.id] = source
-    _group_owner[(mcast_addr, mcast_port)] = log.id
     handle.task = asyncio.create_task(_run_stream(log.id, pcm_path, mcast_addr, mcast_port))
     return log
 

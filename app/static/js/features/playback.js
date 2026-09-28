@@ -1,6 +1,6 @@
 // "Play now" and the playback history.
 import { api } from '../lib/api.js';
-import { $, actionButton, esc, fillSelect, isVisible, onAction, run } from '../lib/dom.js';
+import { $, actionButton, esc, fillSelect, isVisible, modal, onAction, run } from '../lib/dom.js';
 import { fmtDateTime } from '../lib/format.js';
 import { poller } from '../lib/poller.js';
 import { mediaName, onDataChange, state } from '../state.js';
@@ -18,6 +18,55 @@ function targetLabel(r) {
     if (r.target_type === 'all') return t('common.allSpeakers');
     if (r.target_type === 'zone') return `${t('common.zone')}: ${r.target_label}`;
     return r.target_label;
+}
+
+function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+}
+
+// Lists what's already playing on some of the chosen speakers (built with
+// textContent: labels and names are free text) and resolves with the
+// user's choice: 'stop', 'overlap', or null for cancel.
+function askConflict(params) {
+    const list = $('play-conflict-list');
+    list.replaceChildren(...params.conflicts.map(c => {
+        const item = el('li', 'list-group-item');
+        item.append(el('div', 'fw-medium', `${targetLabel({ target_type: c.target_type, target_label: c.label })} — ${c.media}`));
+        const by = c.source === 'schedule' ? t('play.conflictBySchedule', { name: c.by }) : t('play.conflictByUser', { name: c.by || '?' });
+        item.append(el('div', 'small text-muted', `${by} · ${t('play.conflictRemaining', { s: c.remaining_seconds })}`));
+        const more = c.shared_count > c.shared_speakers.length ? ', …' : '';
+        item.append(el('div', 'small', c.shared_count
+            ? t('play.conflictShared', { n: c.shared_count, names: c.shared_speakers.join(', ') + more })
+            : t('play.conflictSameGroup')));
+        return item;
+    }));
+    $('play-conflict-intro').textContent = t('play.conflictIntro', { count: params.count });
+    const upcoming = params.upcoming || [];
+    $('play-conflict-upcoming').replaceChildren(...upcoming.map(u => el('li', '', t('play.conflictUpcomingItem', { name: u.name, s: u.in_seconds }))));
+    $('play-conflict-upcoming-wrap').classList.toggle('d-none', !upcoming.length);
+
+    return new Promise((resolve) => {
+        const dlg = modal('play-conflict-modal');
+        let choice = null;
+        const pick = (value) => () => { choice = value; dlg.hide(); };
+        const onStop = pick('stop');
+        const onOverlap = pick('overlap');
+        const onHidden = () => {
+            $('play-conflict-stop').removeEventListener('click', onStop);
+            $('play-conflict-overlap').removeEventListener('click', onOverlap);
+            $('play-conflict-modal').removeEventListener('hidden.bs.modal', onHidden);
+            resolve(choice);
+        };
+        $('play-conflict-stop').addEventListener('click', onStop);
+        $('play-conflict-overlap').addEventListener('click', onOverlap);
+        $('play-conflict-modal').addEventListener('hidden.bs.modal', onHidden);
+        // Cancel has the focus: Enter on a reflex must not cut anyone off.
+        $('play-conflict-modal').addEventListener('shown.bs.modal', () => $('play-conflict-cancel').focus(), { once: true });
+        dlg.show();
+    });
 }
 
 function statusCell(r) {
@@ -67,16 +116,23 @@ export function init() {
     $('play-target-type').addEventListener('change', () => refreshTargetOptions('play'));
     $('play-btn').addEventListener('click', (e) => run(async () => {
         const type = $('play-target-type').value;
-        await api('/api/playback/play', {
-            method: 'POST',
-            body: {
-                media_id: Number($('play-media').value),
-                target_type: type,
-                target_id: type === 'all' ? null : Number($('play-target-id').value),
-            },
-        });
+        const body = {
+            media_id: Number($('play-media').value),
+            target_type: type,
+            target_id: type === 'all' ? null : Number($('play-target-id').value),
+        };
+        const play = (onConflict) => api('/api/playback/play', { method: 'POST', body: { ...body, on_conflict: onConflict } });
+        try {
+            await play('ask');
+        } catch (err) {
+            if (!err.detail || err.detail.code !== 'playback.speakers_busy') throw err;
+            const choice = await askConflict(err.detail.params);
+            if (!choice) return false;
+            await play(choice);
+        }
         await loadHistory();
-    }, { button: e.currentTarget, success: t('toast.playbackStarted') }));
+        return true;
+    }, { button: e.currentTarget, success: (started) => (started ? t('toast.playbackStarted') : null) }));
     $('refresh-history').addEventListener('click', (e) => run(loadHistory, { button: e.currentTarget }));
     onAction($('history-body'), {
         stop: (id, btn) => run(async () => {
