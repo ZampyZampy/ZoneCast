@@ -89,6 +89,7 @@ class TimeStatusOut(BaseModel):
     ntp_servers: list[str]
     ntp_enabled: Optional[bool] = None
     controllable: bool = False
+    scheduler_timezone: str = ""
 
 
 class SetManualTimeRequest(BaseModel):

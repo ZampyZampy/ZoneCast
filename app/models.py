@@ -239,6 +239,9 @@ class AppSettings(Base):
     # services/event_log.py still applies regardless, to protect
     # against unbounded disk growth).
     log_retention_days = Column(Integer, nullable=True)
+    # Timezone schedules fire in — set together with the host timezone from
+    # Sistema (routers/system.py). NULL = not chosen yet: TIMEZONE from .env.
+    scheduler_timezone = Column(String(64), nullable=True)
 
 
 class SpeakerConfigBackup(Base):

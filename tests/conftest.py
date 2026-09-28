@@ -57,3 +57,28 @@ def admin_client(client):
     res = client.post("/api/auth/login", json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD})
     assert res.status_code == 200, res.text
     return client
+
+
+@pytest.fixture()
+def media_id(client):
+    """A Media row schedules can point at (they're now checked to exist)."""
+    from app.database import SessionLocal
+    from app.models import Media, PlaybackLog, Schedule
+
+    db = SessionLocal()
+    try:
+        media = Media(original_filename="fixture.wav", stored_filename=f"fixture-{os.urandom(4).hex()}.wav")
+        db.add(media)
+        db.commit()
+        mid = media.id
+    finally:
+        db.close()
+    yield mid
+    db = SessionLocal()
+    try:
+        db.query(PlaybackLog).filter(PlaybackLog.media_id == mid).delete()
+        db.query(Schedule).filter(Schedule.media_id == mid).delete()
+        db.query(Media).filter(Media.id == mid).delete()
+        db.commit()
+    finally:
+        db.close()

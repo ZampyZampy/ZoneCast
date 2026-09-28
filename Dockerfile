@@ -32,7 +32,9 @@ COPY alembic.ini .
 COPY migrations ./migrations
 
 # Code stays root-owned; the app user can only write its data dirs.
-RUN python -m compileall -q app \n    && mkdir -p /app/media /app/data /app/backups \n    && chown -R appuser:appuser /app/media /app/data /app/backups
+RUN python -m compileall -q app migrations \
+    && mkdir -p /app/media /app/data /app/backups \
+    && chown -R appuser:appuser /app/media /app/data /app/backups
 
 USER appuser
 

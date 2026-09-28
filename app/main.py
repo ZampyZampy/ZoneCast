@@ -9,11 +9,13 @@ from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from .config import settings, BASE_DIR, session_secret
-from .database import Base, engine, SessionLocal, get_db
+from .database import SessionLocal, get_db
+from .migrate import run_migrations
 from .models import User, UserRole
 from .security import hash_password
 from .services import event_log
 from .services import scheduler as scheduler_service
+from .services import player
 from .services.app_settings import get_settings as get_app_settings, derive_theme_shades
 from .routers import auth, zones, speakers, media, playback, schedules, system, logs, backups
 
@@ -28,7 +30,7 @@ ASSET_VERSION = str(int(time.time()))
 
 
 def bootstrap_admin():
-    Base.metadata.create_all(bind=engine)
+    run_migrations()
     event_log.install()
     db = SessionLocal()
     try:
@@ -52,9 +54,12 @@ def bootstrap_admin():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     bootstrap_admin()
+    player.reconcile_interrupted()
     scheduler_service.start()
     yield
+    await player.stop_all()
     scheduler_service.shutdown()
+    event_log.shutdown()
 
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)

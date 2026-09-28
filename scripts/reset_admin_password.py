@@ -11,7 +11,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.database import SessionLocal, Base, engine  # noqa: E402
+from app.database import SessionLocal  # noqa: E402
+from app.migrate import run_migrations  # noqa: E402
 from app.models import User, UserRole  # noqa: E402
 from app.security import hash_password  # noqa: E402
 
@@ -22,7 +23,7 @@ def main():
         sys.exit(1)
 
     username, new_password = sys.argv[1], sys.argv[2]
-    Base.metadata.create_all(bind=engine)
+    run_migrations()
     db = SessionLocal()
     try:
         user = db.query(User).filter(User.username == username).first()

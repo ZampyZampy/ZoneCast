@@ -1,7 +1,9 @@
+import asyncio
 import os
 import threading
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response
@@ -17,6 +19,7 @@ from ..schemas import (
     ThemeOut, ThemeUpdate, ExportRequest, ImportStagedOut, HostResourcesOut, VersionOut, AlertOut,
 )
 from ..services import system_time, bundle, network_config, pending_import, host_resources, alerts as alerts_service
+from ..services import scheduler as scheduler_service
 from ..version import APP_VERSION, CHANGELOG
 from ..services.app_settings import get_settings
 
@@ -66,7 +69,8 @@ async def import_bundle(
     deleted, in case this was run against live data by mistake."""
     data = await file.read()
     try:
-        pending_import.stage(data, password)
+        # PBKDF2 + decryption + extraction: seconds of CPU, kept off the loop.
+        await asyncio.to_thread(pending_import.stage, data, password)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -86,9 +90,10 @@ async def import_bundle(
 @router.get("/time", response_model=TimeStatusOut)
 def get_time(_: User = Depends(require_admin)):
     try:
-        return system_time.get_status().__dict__
+        status = system_time.get_status().__dict__
     except system_time.SystemTimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {**status, "scheduler_timezone": scheduler_service.scheduler_timezone()}
 
 
 @router.post("/time/manual")
@@ -97,6 +102,7 @@ def set_manual_time(payload: SetManualTimeRequest, _: User = Depends(require_adm
         ntp_disabled = system_time.set_manual_time(payload.datetime_local)
     except system_time.SystemTimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    scheduler_service.wakeup()
     return {"ok": True, "ntp_disabled": ntp_disabled}
 
 
@@ -114,15 +120,24 @@ def set_ntp(payload: SetNtpEnabledRequest, _: User = Depends(require_admin)):
         system_time.set_ntp_enabled(payload.enabled)
     except system_time.SystemTimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    scheduler_service.wakeup()
     return {"ok": True}
 
 
 @router.post("/time/timezone")
-def set_timezone(payload: SetTimezoneRequest, _: User = Depends(require_admin)):
+def set_timezone(payload: SetTimezoneRequest, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    try:
+        ZoneInfo(payload.timezone)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"Fuso orario sconosciuto: {payload.timezone}") from exc
     try:
         system_time.set_timezone(payload.timezone)
     except system_time.SystemTimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    # One timezone for everything: schedules follow the host from now on.
+    get_settings(db).scheduler_timezone = payload.timezone
+    db.commit()
+    scheduler_service.set_timezone(payload.timezone)
     return {"ok": True}
 
 

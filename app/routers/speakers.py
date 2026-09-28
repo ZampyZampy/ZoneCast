@@ -7,17 +7,21 @@ from sqlalchemy.orm import Session
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_user, require_admin
-from ..models import Speaker, SpeakerConfigBackup, User
+from ..models import Speaker, SpeakerConfigBackup, TargetType, User
 from ..schemas import SpeakerCreate, SpeakerUpdate, SpeakerOut, SpeakerBackupOut
-from ..services import multicast_provisioning, speaker_status
+from ..services import multicast_provisioning, references, speaker_status
 from ..services.drivers import ConfigExportError, get_driver
 from ..services.multicast_addressing import MulticastAddressConflict, check_address_available
 
 router = APIRouter(prefix="/api/speakers", tags=["speakers"])
 
 # Fields that change what this speaker's multicast paging list should
-# contain — only these trigger an automatic push to the device.
+# contain — these trigger an automatic push to the device...
 _PAGING_RELEVANT_FIELDS = {"zone_id", "own_multicast_address", "own_multicast_port", "paging_volume"}
+# ...and so do these: a device replaced at a new IP, corrected
+# credentials after a failed push, or a switch to a supported brand all
+# mean the device may not have the right list yet.
+_DEVICE_ACCESS_FIELDS = {"ip_address", "http_port", "http_username", "http_password", "brand"}
 
 
 @router.get("", response_model=list[SpeakerOut])
@@ -81,11 +85,14 @@ def update_speaker(
             check_address_available(db, new_address, new_port, exclude_speaker_id=speaker.id)
         except MulticastAddressConflict as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # The form always sends every field: compare values, or any edit (a
+    # typo in 'location') would trigger a full rewrite of the device.
+    really_changed = {k for k, v in changed_fields.items() if getattr(speaker, k) != v}
     for k, v in changed_fields.items():
         setattr(speaker, k, v)
     db.commit()
     db.refresh(speaker)
-    if _PAGING_RELEVANT_FIELDS & changed_fields.keys():
+    if (_PAGING_RELEVANT_FIELDS | _DEVICE_ACCESS_FIELDS) & really_changed:
         background_tasks.add_task(multicast_provisioning.push_to_speaker_id, speaker.id)
     return speaker
 
@@ -95,6 +102,7 @@ def delete_speaker(speaker_id: int, db: Session = Depends(get_db), _: User = Dep
     speaker = db.query(Speaker).filter(Speaker.id == speaker_id).first()
     if not speaker:
         raise HTTPException(status_code=404, detail="Altoparlante non trovato")
+    references.refuse_if_used(references.schedules_targeting(db, TargetType.speaker, speaker_id), f"L'altoparlante «{speaker.name}»")
     # Config backups deliberately outlive the speaker (see
     # SpeakerConfigBackup docstring) — detach rather than cascade-delete.
     db.query(SpeakerConfigBackup).filter(SpeakerConfigBackup.speaker_id == speaker_id).update(

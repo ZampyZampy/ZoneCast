@@ -3,9 +3,9 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import Zone, User
+from ..models import Speaker, TargetType, Zone, User
 from ..schemas import ZoneCreate, ZoneOut
-from ..services import multicast_provisioning
+from ..services import multicast_provisioning, references
 from ..services.multicast_addressing import MulticastAddressConflict, check_address_available
 
 router = APIRouter(prefix="/api/zones", tags=["zones"])
@@ -65,10 +65,22 @@ def update_zone(
 
 
 @router.delete("/{zone_id}")
-def delete_zone(zone_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def delete_zone(
+    zone_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
     zone = db.query(Zone).filter(Zone.id == zone_id).first()
     if not zone:
         raise HTTPException(status_code=404, detail="Zona non trovata")
+    references.refuse_if_used(references.schedules_targeting(db, TargetType.zone, zone_id), f"La zona «{zone.name}»")
+    member_ids = [s.id for s in db.query(Speaker).filter(Speaker.zone_id == zone_id).all()]
+    db.query(Speaker).filter(Speaker.zone_id == zone_id).update({Speaker.zone_id: None})
     db.delete(zone)
     db.commit()
+    # The devices still listen on the deleted zone's group until told
+    # otherwise — and that address can now be reused by a new zone.
+    for speaker_id in member_ids:
+        background_tasks.add_task(multicast_provisioning.push_to_speaker_id, speaker_id)
     return {"ok": True}

@@ -13,10 +13,16 @@ already logs (CGI failures, provisioning results, scheduler runs,
 login attempts, etc.) do.
 """
 import logging
+import queue
 from datetime import datetime, timedelta
+from logging.handlers import QueueHandler, QueueListener
 
 MAX_ROWS = 5000
 _PRUNE_TO = 4000
+_PRUNE_CHECK_EVERY = 200  # records between row-count checks
+
+_listener: QueueListener | None = None
+_queue_handler: QueueHandler | None = None
 
 
 def prune_by_age(db, retention_days: int) -> int:
@@ -33,6 +39,14 @@ def prune_by_age(db, retention_days: int) -> int:
 
 
 class DBLogHandler(logging.Handler):
+    """Runs on the QueueListener's thread (see install), never on the
+    thread that logged — an INSERT waiting on SQLite's write lock would
+    otherwise stall the event loop, audio included."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._since_prune_check = 0
+
     def emit(self, record: logging.LogRecord) -> None:
         # Local import: this module is imported by main.py at startup,
         # before the app (and its DB engine) is necessarily ready, and
@@ -50,7 +64,9 @@ class DBLogHandler(logging.Handler):
             ))
             # Cheap unbounded-growth guard: only bother counting/pruning
             # occasionally, not on every single insert.
-            if record.created % 50 < 1:
+            self._since_prune_check += 1
+            if self._since_prune_check >= _PRUNE_CHECK_EVERY:
+                self._since_prune_check = 0
                 count = db.query(EventLog).count()
                 if count > MAX_ROWS:
                     cutoff_id = (
@@ -65,13 +81,34 @@ class DBLogHandler(logging.Handler):
             db.commit()
         except Exception:  # noqa: BLE001 — a logging handler must never raise
             db.rollback()
+            self.handleError(record)  # at least on stderr/journal, not silently lost
         finally:
             db.close()
 
 
 def install() -> None:
-    zonecast_logger = logging.getLogger("zonecast")
-    handler = DBLogHandler()
-    handler.setLevel(logging.INFO)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    zonecast_logger.addHandler(handler)
+    """Idempotent: safe to call on every app start (tests start it many
+    times in one process)."""
+    global _listener, _queue_handler
+    if _listener is not None:
+        return
+    db_handler = DBLogHandler()
+    db_handler.setLevel(logging.INFO)
+    db_handler.setFormatter(logging.Formatter("%(message)s"))
+    log_queue: queue.SimpleQueue = queue.SimpleQueue()
+    _queue_handler = QueueHandler(log_queue)
+    _queue_handler.setLevel(logging.INFO)
+    logging.getLogger("zonecast").addHandler(_queue_handler)
+    _listener = QueueListener(log_queue, db_handler, respect_handler_level=True)
+    _listener.start()
+
+
+def shutdown() -> None:
+    """Writes out whatever is still queued, then detaches."""
+    global _listener, _queue_handler
+    if _listener is None:
+        return
+    logging.getLogger("zonecast").removeHandler(_queue_handler)
+    _listener.stop()
+    _listener = None
+    _queue_handler = None

@@ -1042,6 +1042,9 @@ async function loadSystemTime() {
         lastTimeStatus = status;
         document.getElementById('sys-local-time').textContent = status.local_time;
         document.getElementById('sys-timezone').textContent = status.timezone;
+        document.getElementById('sys-scheduler-timezone').textContent = status.scheduler_timezone || '—';
+        document.getElementById('sys-timezone-mismatch').classList.toggle(
+            'd-none', !status.scheduler_timezone || status.scheduler_timezone === status.timezone);
         renderTimeStatusLabels(status);
 
         document.getElementById('sys-ntp-controls').classList.toggle('d-none', !status.controllable);

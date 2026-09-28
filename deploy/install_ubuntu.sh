@@ -44,7 +44,8 @@ mkdir -p "$INSTALL_DIR"
 rsync -a --delete \
     --exclude '.git' --exclude '__pycache__' --exclude '*.pyc' \
     --exclude 'data' --exclude 'media' --exclude 'backups' --exclude 'venv' \
-    "$REPO_DIR"/app "$REPO_DIR"/requirements.txt "$REPO_DIR"/deploy "$INSTALL_DIR/"
+    "$REPO_DIR"/app "$REPO_DIR"/requirements.txt "$REPO_DIR"/deploy \
+    "$REPO_DIR"/alembic.ini "$REPO_DIR"/migrations "$INSTALL_DIR/"
 
 if [[ -d "$REPO_DIR/sounds" ]]; then
     rsync -a "$REPO_DIR"/sounds "$INSTALL_DIR/"
@@ -66,7 +67,7 @@ python3 -m venv "$INSTALL_DIR/venv"
 
 # Bytecode compilato qui (da root) perché a runtime l'utente di servizio
 # non può scrivere __pycache__ nella cartella del codice.
-"$INSTALL_DIR/venv/bin/python" -m compileall -q "$INSTALL_DIR/app"
+"$INSTALL_DIR/venv/bin/python" -m compileall -q "$INSTALL_DIR/app" "$INSTALL_DIR/migrations"
 
 echo "== Permessi =="
 # Codice, venv e deploy/ restano di root: l'utente di servizio scrive SOLO

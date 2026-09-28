@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import uuid
@@ -12,13 +13,17 @@ from ..database import get_db
 from ..deps import get_current_user
 from ..models import Media, User
 from ..schemas import MediaOut
-from ..services import audio_analysis
+from ..services import audio_analysis, references
 from ..services.audio_convert import convert_to_pcm8k, AudioConversionError
 
 router = APIRouter(prefix="/api/media", tags=["media"])
 logger = logging.getLogger("zonecast.media")
 
 _SAFE_EXT_RE = re.compile(r"^\.[a-zA-Z0-9]{1,8}$")
+# One normalize at a time per file: the gain is applied in place, so a
+# second click arriving mid-way must see the re-analysed level, not apply
+# the stale one again (that would clip the audio for good).
+_normalize_locks: dict[tuple[int, int], asyncio.Lock] = {}
 
 
 def _safe_extension(filename: str) -> str:
@@ -46,21 +51,30 @@ async def upload_media(
     # uploads are rejected below when the ffmpeg conversion itself fails.
     ext = _safe_extension(file.filename)
 
-    data = await file.read()
-    size_mb = len(data) / (1024 * 1024)
-    if size_mb > settings.max_upload_mb:
-        raise HTTPException(status_code=400, detail=f"File troppo grande (max {settings.max_upload_mb} MB)")
-
     token = uuid.uuid4().hex
     stored_name = f"{token}{ext}"
     pcm_name = f"{token}.pcm8k.wav"
 
     src_path = settings.media_dir / stored_name
     pcm_path = settings.media_dir / pcm_name
-    src_path.write_bytes(data)
-
+    # Copied to disk in chunks, never held whole in memory.
+    limit = settings.max_upload_mb * 1024 * 1024
+    size = 0
     try:
-        duration = convert_to_pcm8k(src_path, pcm_path)
+        with src_path.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > limit:
+                    raise HTTPException(status_code=400, detail=f"File troppo grande (max {settings.max_upload_mb} MB)")
+                out.write(chunk)
+    except BaseException:
+        src_path.unlink(missing_ok=True)
+        raise
+
+    # ffmpeg runs in a worker thread: on the event loop it would stall
+    # everything else for seconds, including announcements being played.
+    try:
+        duration = await asyncio.to_thread(convert_to_pcm8k, src_path, pcm_path)
     except AudioConversionError as exc:
         src_path.unlink(missing_ok=True)
         raise HTTPException(
@@ -81,11 +95,11 @@ async def upload_media(
         stored_filename=stored_name,
         pcm_filename=pcm_name,
         duration_seconds=duration,
-        size_bytes=len(data),
+        size_bytes=size,
         content_type=file.content_type or "",
         uploaded_by_id=user.id,
     )
-    _run_analysis(media, src_path)
+    await asyncio.to_thread(_run_analysis, media, src_path)
     db.add(media)
     db.commit()
     db.refresh(media)
@@ -115,9 +129,16 @@ async def normalize_media(media_id: int, db: Session = Depends(get_db), _: User 
     linear amplification — same waveform, just scaled up to leave ~1 dB
     of headroom under 0 dBFS — then regenerates the streaming copy and
     re-analyzes so the stored levels reflect the new file."""
+    lock = _normalize_locks.setdefault((id(asyncio.get_running_loop()), media_id), asyncio.Lock())
+    async with lock:
+        return await _normalize(media_id, db)
+
+
+async def _normalize(media_id: int, db: Session) -> Media:
     media = db.query(Media).filter(Media.id == media_id).first()
     if not media:
         raise HTTPException(status_code=404, detail="File non trovato")
+    db.refresh(media)  # the previous holder of the lock may just have changed it
     if not media.suggested_gain_db:
         raise HTTPException(status_code=400, detail="Questo file è già al massimo livello utile, nessuna amplificazione necessaria")
 
@@ -127,15 +148,15 @@ async def normalize_media(media_id: int, db: Session = Depends(get_db), _: User 
         raise HTTPException(status_code=404, detail="File non presente sul server")
 
     try:
-        audio_analysis.apply_gain(src_path, media.suggested_gain_db)
-        duration = convert_to_pcm8k(src_path, pcm_path)
+        await asyncio.to_thread(audio_analysis.apply_gain, src_path, media.suggested_gain_db)
+        duration = await asyncio.to_thread(convert_to_pcm8k, src_path, pcm_path)
     except (audio_analysis.AudioAnalysisError, AudioConversionError) as exc:
         raise HTTPException(status_code=502, detail=f"Amplificazione fallita: {exc}") from exc
 
     media.duration_seconds = duration
     media.size_bytes = src_path.stat().st_size
     media.normalized = True
-    _run_analysis(media, src_path)
+    await asyncio.to_thread(_run_analysis, media, src_path)
     db.commit()
     db.refresh(media)
     return media
@@ -157,6 +178,7 @@ def delete_media(media_id: int, db: Session = Depends(get_db), _: User = Depends
     media = db.query(Media).filter(Media.id == media_id).first()
     if not media:
         raise HTTPException(status_code=404, detail="File non trovato")
+    references.refuse_if_used(references.schedules_using_media(db, media_id), f"Il file «{media.original_filename}»")
     for fname in (media.stored_filename, media.pcm_filename):
         if fname:
             (settings.media_dir / fname).unlink(missing_ok=True)

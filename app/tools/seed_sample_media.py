@@ -17,7 +17,8 @@ import sys
 from pathlib import Path
 
 from ..config import BASE_DIR, settings
-from ..database import Base, SessionLocal, engine
+from ..database import SessionLocal
+from ..migrate import run_migrations
 from ..models import Media, User, UserRole
 from ..services import audio_analysis
 from ..services.audio_convert import AudioConversionError, convert_to_pcm8k
@@ -40,7 +41,7 @@ def main() -> int:
         print(f"Nessun file audio trovato in {source_dir}.")
         return 0
 
-    Base.metadata.create_all(bind=engine)
+    run_migrations()
     db = SessionLocal()
     try:
         existing_names = {name for (name,) in db.query(Media.original_filename).all()}

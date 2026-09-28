@@ -7,7 +7,7 @@ from ..database import get_db
 from ..deps import get_current_user
 from ..models import Schedule, TargetType, User
 from ..schemas import ScheduleCreate, ScheduleUpdate, ScheduleOut
-from ..services import scheduler as scheduler_service
+from ..services import references, scheduler as scheduler_service
 
 router = APIRouter(prefix="/api/schedules", tags=["schedules"])
 logger = logging.getLogger("zonecast.schedules")
@@ -56,6 +56,7 @@ def _save_with_job(db: Session, sched: Schedule) -> None:
 @router.post("", response_model=ScheduleOut)
 def create_schedule(payload: ScheduleCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     sched = Schedule(**payload.model_dump(), created_by_id=user.id)
+    references.check_schedule_references(db, sched)
     db.add(sched)
     _save_with_job(db, sched)
     db.refresh(sched)
@@ -75,6 +76,11 @@ def update_schedule(schedule_id: int, payload: ScheduleUpdate, db: Session = Dep
     if sched.start_date and sched.end_date and sched.start_date > sched.end_date:
         db.rollback()
         raise HTTPException(status_code=422, detail="La data di inizio è successiva alla data di fine")
+    try:
+        references.check_schedule_references(db, sched)
+    except HTTPException:
+        db.rollback()
+        raise
     _save_with_job(db, sched)
     db.refresh(sched)
     return sched

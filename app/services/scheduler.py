@@ -7,11 +7,13 @@ window at run time, using the `holidays` library, so editing a
 schedule's holiday behaviour doesn't require recomputing a fixed list
 of future dates.
 """
+import asyncio
 import logging
 from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import holidays
+from apscheduler.events import EVENT_JOB_MISSED
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -43,10 +45,45 @@ def _job_id(schedule_id: int) -> str:
     return f"schedule-{schedule_id}"
 
 
+_timezone: str | None = None
+
+
+def scheduler_timezone() -> str:
+    """Timezone schedules fire in: the one chosen from Sistema together
+    with the host timezone (app_settings.scheduler_timezone), else
+    TIMEZONE from .env — see routers/system.py's set_timezone."""
+    global _timezone
+    if _timezone is None:
+        db = SessionLocal()
+        try:
+            _timezone = get_settings(db).scheduler_timezone or settings.timezone
+        finally:
+            db.close()
+    return _timezone
+
+
+def set_timezone(tz: str) -> None:
+    """Re-registers every schedule in `tz` (the host timezone was just
+    changed from Sistema) so bells keep ringing at the wall-clock time
+    shown in the dashboard."""
+    global _timezone
+    _timezone = tz
+    load_all_schedules()
+    logger.info("Fuso orario delle schedulazioni impostato a %s", tz)
+
+
+def wakeup() -> None:
+    """The scheduler sleeps on the monotonic clock until the next job:
+    after the wall clock is stepped (manual time, NTP toggle) it must
+    recompute that, or a bell can fire minutes late or be missed."""
+    if _scheduler is not None and _scheduler.running:
+        _scheduler.wakeup()
+
+
 def get_scheduler() -> AsyncIOScheduler:
     global _scheduler
     if _scheduler is None:
-        _scheduler = AsyncIOScheduler(timezone=settings.timezone)
+        _scheduler = AsyncIOScheduler(timezone=scheduler_timezone())
     return _scheduler
 
 
@@ -71,10 +108,10 @@ async def _run_schedule(schedule_id: int):
         if not sched or not sched.enabled:
             return
 
-        # The cron trigger fires in settings.timezone, which can differ
+        # The cron trigger fires in scheduler_timezone(), which can differ
         # from the host/container clock — judge the date range and the
         # holiday rule on that same calendar day.
-        today = datetime.now(ZoneInfo(settings.timezone)).date()
+        today = datetime.now(ZoneInfo(scheduler_timezone())).date()
         if sched.start_date and today < sched.start_date:
             return
         if sched.end_date and today > sched.end_date:
@@ -89,16 +126,40 @@ async def _run_schedule(schedule_id: int):
             return
 
         logger.info("Running schedule %s (%s)", schedule_id, sched.name)
-        await player.play(
-            db,
-            media_id=sched.media_id,
-            target_type=sched.target_type,
-            target_id=sched.target_id,
-            source=PlaybackSource.schedule,
-            schedule_id=sched.id,
-        )
+        try:
+            await player.play(
+                db,
+                media_id=sched.media_id,
+                target_type=sched.target_type,
+                target_id=sched.target_id,
+                source=PlaybackSource.schedule,
+                schedule_id=sched.id,
+            )
+        except (player.TargetResolutionError, player.GroupBusyError) as exc:
+            # e.g. its audio file or zone was deleted: recorded as a failed
+            # run so the login alert and the history show it.
+            logger.warning("Schedulazione %s (%s) non eseguita: %s", schedule_id, sched.name, exc)
+            player.record_failed_run(db, sched, str(exc))
     except Exception:
         logger.exception("Failed running schedule %s", schedule_id)
+    finally:
+        db.close()
+
+
+def _on_job_missed(event) -> None:
+    """A schedule's run time passed without it firing (the service was
+    busy or the clock was stepped past it beyond misfire_grace_time)."""
+    if not event.job_id.startswith("schedule-"):
+        return
+    schedule_id = int(event.job_id.removeprefix("schedule-"))
+    db = SessionLocal()
+    try:
+        sched = db.query(Schedule).filter(Schedule.id == schedule_id).first()
+        if sched:
+            logger.warning("Schedulazione %s (%s) saltata: orario previsto %s", schedule_id, sched.name, event.scheduled_run_time)
+            player.record_failed_run(db, sched, f"Saltata: non eseguita all'orario previsto ({event.scheduled_run_time:%Y-%m-%d %H:%M})")
+    except Exception:
+        logger.exception("Registrazione della schedulazione saltata %s non riuscita", schedule_id)
     finally:
         db.close()
 
@@ -116,7 +177,7 @@ def add_or_update_job(schedule: Schedule):
         hour=schedule.time_of_day.hour,
         minute=schedule.time_of_day.minute,
         second=schedule.time_of_day.second,
-        timezone=settings.timezone,
+        timezone=scheduler_timezone(),
     )
     sched_engine.add_job(
         _run_schedule,
@@ -150,17 +211,39 @@ def load_all_schedules():
         db.close()
 
 
+# Well below the DB connection pool (5 + 10 overflow for SQLite).
+SWEEP_CONCURRENCY = 8
+
+
 async def _check_all_speakers_job():
+    """Checks run concurrently (one at a time, 150 offline speakers x 2 s
+    timeout would overrun the 5-minute interval) and each in its own
+    session: a speaker deleted mid-sweep fails only its own check."""
     db = SessionLocal()
     try:
-        speakers = db.query(Speaker).all()
-        for sp in speakers:
-            try:
-                await speaker_status.check_and_update(db, sp)
-            except Exception:
-                logger.exception("Controllo raggiungibilità fallito per l'altoparlante %s", sp.id)
+        speaker_ids = [sid for (sid,) in db.query(Speaker.id).all()]
     finally:
         db.close()
+    limit = asyncio.Semaphore(SWEEP_CONCURRENCY)
+
+    async def check(speaker_id: int) -> None:
+        async with limit:
+            session = SessionLocal(expire_on_commit=False)
+            try:
+                speaker = session.query(Speaker).filter(Speaker.id == speaker_id).first()
+                # Hand the connection back before waiting on the network:
+                # held across a 2 s probe, a handful of checks would empty
+                # the pool and stall every other DB user — bells included.
+                session.commit()
+                if speaker:
+                    await speaker_status.check_and_update(session, speaker)
+            except Exception:
+                session.rollback()
+                logger.exception("Controllo raggiungibilità fallito per l'altoparlante %s", speaker_id)
+            finally:
+                session.close()
+
+    await asyncio.gather(*(check(sid) for sid in speaker_ids))
 
 
 def _prune_logs_job():
@@ -185,8 +268,9 @@ def start():
             _check_all_speakers_job, trigger="interval",
             minutes=speaker_status.CHECK_INTERVAL_MINUTES,
             id="speaker-status-check", replace_existing=True,
-            next_run_time=datetime.now(ZoneInfo(settings.timezone)),  # also run once immediately at startup
+            next_run_time=datetime.now(ZoneInfo(scheduler_timezone())),  # also run once immediately at startup
         )
+        sched_engine.add_listener(_on_job_missed, EVENT_JOB_MISSED)
         sched_engine.start()
 
 

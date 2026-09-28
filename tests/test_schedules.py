@@ -1,11 +1,21 @@
+import pytest
+
 from app.database import SessionLocal
 from app.models import Schedule, TargetType
+
+
+_MEDIA = {}
+
+
+@pytest.fixture(autouse=True)
+def _media(media_id):
+    _MEDIA["id"] = media_id
 
 
 def _payload(**overrides):
     body = {
         "name": "Test schedule",
-        "media_id": 1,
+        "media_id": _MEDIA["id"],
         "target_type": "all",
         "time_of_day": "08:30:00",
         "days_of_week": "mon,tue,wed,thu,fri",
@@ -71,7 +81,7 @@ def test_startup_survives_an_unloadable_schedule(admin_client):
     good = admin_client.post("/api/schedules", json=_payload(name="good")).json()
     db = SessionLocal()
     try:
-        bad = Schedule(name="legacy", media_id=1, target_type=TargetType.all, time_of_day=time(9, 0), days_of_week="lun,mar")
+        bad = Schedule(name="legacy", media_id=_MEDIA["id"], target_type=TargetType.all, time_of_day=time(9, 0), days_of_week="lun,mar")
         db.add(bad)
         db.commit()
         bad_id = bad.id
@@ -107,7 +117,7 @@ def test_editing_a_legacy_row_returns_422_not_500(admin_client):
 
     db = SessionLocal()
     try:
-        bad = Schedule(name="legacy", media_id=1, target_type=TargetType.all, time_of_day=time(9, 0), days_of_week="lun,mar")
+        bad = Schedule(name="legacy", media_id=_MEDIA["id"], target_type=TargetType.all, time_of_day=time(9, 0), days_of_week="lun,mar")
         db.add(bad)
         db.commit()
         bad_id = bad.id
