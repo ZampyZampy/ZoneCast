@@ -8,3 +8,7 @@ media/*
 venv/
 .claude/
 missing_en_source.txt
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml

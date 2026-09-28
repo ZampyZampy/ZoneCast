@@ -34,22 +34,38 @@ export function toast(message, kind = 'success') {
 }
 
 // Runs `fn` with `button` disabled, so a double-click (or a second click
-// while a slow request is pending) can't start the action twice.
-export async function withBusy(button, fn) {
+// while a slow request is pending) can't start the action twice. With
+// `busyLabel` the button also says what it's doing ("Applying…") — some
+// device writes and exports take several seconds.
+export async function withBusy(button, fn, { busyLabel } = {}) {
     if (button && button.disabled) return undefined;
-    if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+    let saved;
+    if (button) {
+        button.disabled = true;
+        button.setAttribute('aria-busy', 'true');
+        if (busyLabel) {
+            saved = button.innerHTML;
+            const label = button.querySelector('.btn-label');
+            if (label) label.textContent = ` ${busyLabel}`;
+            else button.textContent = busyLabel;
+        }
+    }
     try {
         return await fn();
     } finally {
-        if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
+        if (button) {
+            if (saved !== undefined) button.innerHTML = saved;
+            button.disabled = false;
+            button.removeAttribute('aria-busy');
+        }
     }
 }
 
 // One helper for "do it, report failure": every action in the dashboard
 // goes through here instead of ad-hoc try/catch blocks.
-export async function run(fn, { button, success } = {}) {
+export async function run(fn, { button, success, busyLabel } = {}) {
     try {
-        const result = await withBusy(button, fn);
+        const result = await withBusy(button, fn, { busyLabel });
         if (success) toast(typeof success === 'function' ? success(result) : success);
         return result;
     } catch (err) {
@@ -72,9 +88,11 @@ export function fillSelect(select, items, { value = i => i.id, label, empty } = 
 
 // Icon+label action button; the label doubles as the accessible name,
 // since on phones the text part is hidden and only the icon shows.
-export function actionButton(action, id, icon, labelKey, style = 'btn-outline-secondary') {
+// `titleKey` gives the tooltip a longer explanation than the label.
+export function actionButton(action, id, icon, labelKey, style = 'btn-outline-secondary', titleKey = null) {
     const label = esc(t(labelKey));
-    return `<button type="button" class="btn btn-sm ${style}" data-action="${action}" data-id="${esc(id)}" aria-label="${label}" title="${label}">`
+    const title = titleKey ? esc(t(titleKey)) : label;
+    return `<button type="button" class="btn btn-sm ${style}" data-action="${action}" data-id="${esc(id)}" aria-label="${label}" title="${title}">`
         + `<i class="bi ${icon}" aria-hidden="true"></i><span class="btn-label"> ${label}</span></button>`;
 }
 

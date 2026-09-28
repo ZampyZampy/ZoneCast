@@ -12,6 +12,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
         raise AppError(status.HTTP_401_UNAUTHORIZED, "auth.not_authenticated", "Not signed in.")
     user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
     if not user:
+        request.session.clear()  # deleted or deactivated account: drop the stale cookie
         raise AppError(status.HTTP_401_UNAUTHORIZED, "auth.not_authenticated", "Not signed in.")
     return user
 

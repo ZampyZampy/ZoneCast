@@ -5,23 +5,84 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Ruff
+        run: ruff check .
+      - name: Lock files match requirements*.in
+        # Recompiled in place, as CONTRIBUTING.md says: uv keeps the pins
+        # already in the lock, so this fails only when a .in file and its
+        # lock disagree — not whenever something upstream releases.
+        run: |
+          uv pip compile requirements.in --universal --python-version 3.11 --generate-hashes -q -o requirements.txt
+          uv pip compile requirements-dev.in --universal --python-version 3.11 --generate-hashes -q -o requirements-dev.txt
+          git diff --exit-code -I '^#' -- requirements.txt requirements-dev.txt
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+      - name: JavaScript syntax
+        run: |
+          for f in app/static/js/*.js app/static/js/lib/*.js app/static/js/features/*.js; do
+            node --check "$f"
+          done
+      - name: Migrations build the models' schema
+        run: |
+          export DATABASE_URL="sqlite:///$RUNNER_TEMP/migrations.db" SECRET_KEY=ci
+          alembic upgrade head
+          alembic check
+
   pytest:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.11", "3.13"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Tests
+        run: pytest --ignore=tests/e2e --cov --cov-report=term-missing:skip-covered
 
-      - name: Install dependencies
-        run: pip install -r requirements-dev.txt
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: playwright install --with-deps chromium
+      - name: Browser tests
+        run: pytest tests/e2e
 
-      - name: Run tests
-        run: pytest
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build image
+        run: docker build -t zonecast:ci .
+      - name: Starts and answers /health
+        run: |
+          docker run -d --name zc -p 8000:8000 -e SECRET_KEY=ci-only-secret zonecast:ci
+          for i in $(seq 30); do curl -fsS http://127.0.0.1:8000/health && exit 0; sleep 1; done
+          docker logs zc
+          exit 1

@@ -5,7 +5,7 @@ import uuid
 
 import pyotp
 
-from .conftest import ADMIN_PASSWORD, add_media, login, open_tab
+from .conftest import add_media, login, open_tab
 
 
 def _uid(prefix):
@@ -168,8 +168,8 @@ def test_password_change_and_wrong_current_password(page, server):
 
 def test_sorting_by_keyboard_survives_a_data_refresh(page, server):
     tag = uuid.uuid4().hex[:6]
-    for prefix in ("zz", "aa", "mm"):
-        server.api.post("/api/zones", json={"name": f"{prefix}-sort-{tag}", "multicast_address": f"239.255.73.{uuid.uuid4().int % 250 + 1}"})
+    for i, prefix in enumerate(("zz", "aa", "mm"), start=1):
+        server.api.post("/api/zones", json={"name": f"{prefix}-sort-{tag}", "multicast_address": f"239.255.73.{i}"})
 
     def ours():
         names = page.locator("#zones-body tr td:first-child").all_inner_texts()

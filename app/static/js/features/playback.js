@@ -9,7 +9,9 @@ import { onTabShown } from './nav.js';
 const STATUS_BADGE = { running: 'bg-primary', completed: 'bg-success', failed: 'bg-danger', stopped: 'bg-secondary' };
 const IDLE_POLL_MS = 15000;
 const ACTIVE_POLL_MS = 3000;  // while something is playing, so "completed" shows up promptly
-let history = [];
+// null until the first load: drawing "no playbacks" before the history
+// has arrived would flash a wrong empty state on every page load.
+let history = null;
 const historyPoller = poller(loadHistory, IDLE_POLL_MS, { when: () => isVisible($('tab-play')) });
 
 function targetLabel(r) {
@@ -27,6 +29,7 @@ function statusCell(r) {
 }
 
 export function renderHistory() {
+    if (history === null) return;
     $('history-body').innerHTML = history.map(r => `
         <tr>
             <td>${fmtDateTime(r.started_at)}</td>

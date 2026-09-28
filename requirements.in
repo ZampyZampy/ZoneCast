@@ -1,0 +1,25 @@
+# Direct runtime dependencies. requirements.txt is generated from this
+# file (every transitive package pinned, with hashes) — see CONTRIBUTING.md.
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+sqlalchemy==2.0.54
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-multipart==0.0.32
+bcrypt==5.0.0
+cryptography==50.0.1
+pyotp==2.10.0
+qrcode==8.2
+itsdangerous==2.2.0
+apscheduler==3.11.3
+alembic==1.20.0
+holidays==0.104
+httpx==0.28.1
+jinja2==3.1.6
+python-dotenv==1.2.3
+# IANA timezone data for zoneinfo, also used to place "sunrise/sunset"
+# for the Automatic theme (services/sun_position.py).
+tzdata
+# `audioop` (G.711 encoding) left the stdlib in Python 3.13 (PEP 594);
+# the Docker image pins 3.11, newer native installs need the backport.
+audioop-lts; python_version >= "3.13"

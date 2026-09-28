@@ -1,0 +1,9 @@
+# Test and lint tools. Constrained to the exact runtime set in
+# requirements.txt, so tests run against what gets deployed.
+-c requirements.txt
+-r requirements.in
+pytest
+pytest-cov
+playwright
+ruff
+uv

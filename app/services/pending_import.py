@@ -19,10 +19,10 @@ or systemd's `Restart=always` to bring it back up — at which point
 """
 import logging
 import shutil
-from datetime import datetime
 from pathlib import Path
 
 from ..config import settings
+from ..timeutil import utcnow
 
 STAGING_DIR = settings.data_dir / "_pending_import"
 logger = logging.getLogger("zonecast.import")
@@ -49,7 +49,7 @@ def _sidecars(db_path: Path) -> list[Path]:
 
 
 def _backup_current() -> None:
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    ts = utcnow().strftime("%Y%m%d_%H%M%S")
     if settings.db_path.exists():
         # Through SQLite's backup API, not a file copy: the process that
         # staged the import was killed with os._exit, so recent commits

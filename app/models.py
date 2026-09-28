@@ -1,5 +1,4 @@
 import enum
-from datetime import datetime, date, time
 
 from sqlalchemy import (
     Column, Integer, String, Boolean, DateTime, Date, Time, Float,
@@ -9,6 +8,7 @@ from sqlalchemy.orm import relationship
 
 from .database import Base
 from .db_types import EncryptedString
+from .timeutil import utcnow
 
 
 class UserRole(str, enum.Enum):
@@ -49,7 +49,7 @@ class User(Base):
     full_name = Column(String(128), default="")
     role = Column(SAEnum(UserRole), default=UserRole.operator, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     # Optional per-user TOTP two-factor auth — self-service (see
     # routers/auth.py's /me/2fa/* endpoints). totp_secret is only
@@ -77,7 +77,7 @@ class Zone(Base):
     description = Column(String(255), default="")
     multicast_address = Column(String(64), nullable=False)
     multicast_port = Column(Integer, nullable=False, default=5004)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     speakers = relationship("Speaker", back_populates="zone")
 
@@ -119,8 +119,8 @@ class Speaker(Base):
     zone = relationship("Zone", back_populates="speakers")
 
     notes = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     @property
     def supports_auto_config(self) -> bool:
@@ -158,7 +158,7 @@ class Media(Base):
     size_bytes = Column(Integer, default=0)
     content_type = Column(String(64), default="")
     uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    uploaded_at = Column(DateTime, default=datetime.utcnow)
+    uploaded_at = Column(DateTime, default=utcnow)
 
     # Populated by services/audio_analysis.py right after upload (and
     # refreshed after /normalize) — see its module docstring for why
@@ -223,8 +223,8 @@ class Schedule(Base):
 
     enabled = Column(Boolean, default=True, nullable=False)
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
 
 class AppSettings(Base):
@@ -270,7 +270,7 @@ class SpeakerConfigBackup(Base):
 
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_by = relationship("User")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=utcnow)
 
     @property
     def created_by_name(self) -> str | None:
@@ -292,7 +292,7 @@ class EventLog(Base):
     __tablename__ = "event_logs"
 
     id = Column(Integer, primary_key=True)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=utcnow, index=True)
     level = Column(String(16), nullable=False)
     logger_name = Column(String(128), nullable=False)
     message = Column(Text, nullable=False)
@@ -314,7 +314,7 @@ class PlaybackLog(Base):
     triggered_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     triggered_by = relationship("User")
 
-    started_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, default=utcnow)
     finished_at = Column(DateTime, nullable=True)
     status = Column(SAEnum(PlaybackStatus), default=PlaybackStatus.running, nullable=False)
     error_message = Column(String(500), default="")

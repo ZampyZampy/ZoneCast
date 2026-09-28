@@ -38,10 +38,14 @@ class CodedError(Exception):
         return AppError(status_code, self.code, str(self), **self.params)
 
 
+_CODED = "_zonecast_code"
+
+
 def invalid(code: str, message: str, **params) -> PydanticCustomError:
     """For field/model validators: the frontend reads `code` from the
-    first validation error (see the handler below)."""
-    return PydanticCustomError(code, message, params)
+    first validation error (see the handler below). The marker tells the
+    handler this type is one of ours, whatever its prefix."""
+    return PydanticCustomError(code, message, {**params, _CODED: True})
 
 
 def _field(loc) -> str:
@@ -53,8 +57,9 @@ async def _validation_handler(_: Request, exc: RequestValidationError) -> JSONRe
     errors = exc.errors()
     first = errors[0] if errors else {}
     code = str(first.get("type", ""))
-    if code.startswith("validation."):
-        params = {k: str(v) for k, v in (first.get("ctx") or {}).items()}
+    ctx = first.get("ctx") or {}
+    if ctx.get(_CODED):
+        params = {k: str(v) for k, v in ctx.items() if k != _CODED}
     else:
         code = "validation.generic"
         params = {"fields": ", ".join(sorted({_field(e.get("loc", ())) for e in errors}))}

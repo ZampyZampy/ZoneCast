@@ -7,7 +7,7 @@ import time
 import pytest
 
 from app.database import SessionLocal
-from app.models import Media, PlaybackLog, PlaybackStatus, Speaker, TargetType, Zone
+from app.models import Media, PlaybackLog, Speaker, TargetType, Zone
 from app.services import multicast_provisioning, player, scheduler as scheduler_service, speaker_status
 
 

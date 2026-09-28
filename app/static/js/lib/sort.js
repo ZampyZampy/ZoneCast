@@ -22,6 +22,9 @@ export function makeSortable(table, keyFns, render) {
             h.insertAdjacentHTML('beforeend', ` <span class="sort-indicator" aria-hidden="true">${s.dir === 1 ? '▲' : '▼'}</span>`);
         }
     });
+    // applyI18n() rewrites the header text on a language switch, which
+    // drops the arrow: put it back.
+    document.addEventListener('zc:languagechange', update);
     headers.forEach(th => {
         if (!keyFns[th.dataset.sort]) return;
         th.tabIndex = 0;

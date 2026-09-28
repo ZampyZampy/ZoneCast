@@ -1,8 +1,8 @@
 """End-to-end checks of the dashboard in a real browser."""
+import itertools
 import re
 import uuid
 
-import pytest
 
 from .conftest import OPERATOR, add_media, login, open_tab
 
@@ -14,20 +14,26 @@ def _uid(prefix):
     return f"{prefix}-{uuid.uuid4().hex[:6]}"
 
 
+# Unique addresses per test session: random ones collided now and then
+# (the API rightly refuses a duplicate IP or multicast group).
+_serial = itertools.count(1)
+
+
 def _zone(server, name=None, addr=None):
+    n = next(_serial)
     res = server.api.post("/api/zones", json={
         "name": name or _uid("zone"),
-        "multicast_address": addr or f"239.255.{uuid.uuid4().int % 200 + 1}.{uuid.uuid4().int % 250 + 1}",
+        "multicast_address": addr or f"239.253.{n // 250}.{n % 250 + 1}",
     })
     res.raise_for_status()
     return res.json()
 
 
 def _speaker(server, name=None):
-    n = uuid.uuid4().int
+    n = next(_serial)
     res = server.api.post("/api/speakers", json={
-        "name": name or _uid("spk"), "ip_address": f"192.0.2.{n % 250 + 1}",
-        "own_multicast_address": f"239.254.{n % 200 + 1}.{(n >> 8) % 250 + 1}", "brand": "other",
+        "name": name or _uid("spk"), "ip_address": f"198.18.{n // 250}.{n % 250 + 1}",
+        "own_multicast_address": f"239.254.{n // 250}.{n % 250 + 1}", "brand": "other",
     })
     res.raise_for_status()
     return res.json()
@@ -133,7 +139,7 @@ def test_failed_playbacks_show_their_reason(page, server):
     con.commit()
     con.close()
     login(page, server)
-    assert page.locator("#history-body [title*='prova e2e'], #history-body :text('prova e2e')").count() >= 1
+    page.wait_for_selector("#history-body [title*='prova e2e']", state="attached")
 
 
 def test_operator_sees_no_admin_ui_and_does_not_poll_admin_endpoints(page, server):

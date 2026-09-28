@@ -30,15 +30,15 @@ function actions(s) {
     const admin = isAdmin();
     let deviceAction = '';
     if (admin && s.supports_auto_config) {
-        deviceAction = actionButton('push', s.id, 'bi-cloud-upload', 'action.applyNow');
+        deviceAction = actionButton('push', s.id, 'bi-cloud-upload', 'action.applyNow', 'btn-outline-secondary', 'speakers.applyNowTitle');
     } else if (admin) {
         deviceAction = `<span class="text-muted small fst-italic me-2" title="${esc(t('speakers.manualConfigTitle'))}">${esc(t('action.manualConfig'))}</span>`;
     }
     return [
         actionButton('ping', s.id, 'bi-broadcast', 'action.ping'),
-        actionButton('preview', s.id, 'bi-eye', 'action.preview'),
+        actionButton('preview', s.id, 'bi-eye', 'action.preview', 'btn-outline-secondary', 'speakers.previewTitle'),
         deviceAction,
-        admin && s.supports_config_backup ? actionButton('backups', s.id, 'bi-archive', 'action.backup') : '',
+        admin && s.supports_config_backup ? actionButton('backups', s.id, 'bi-archive', 'action.backup', 'btn-outline-secondary', 'speakers.backupTitle') : '',
         actionButton('edit', s.id, 'bi-pencil', 'action.edit', 'btn-outline-primary'),
         actionButton('delete', s.id, 'bi-trash', 'action.delete', 'btn-outline-danger'),
     ].join('');
@@ -111,7 +111,7 @@ async function ping(id, btn) {
             const idx = state.speakers.findIndex(x => x.id === s.id);
             if (idx !== -1) { state.speakers[idx] = s; render(); }
         } catch (err) { toast(err.message, 'danger'); }
-    });
+    }, { busyLabel: t('action.checking') });
 }
 
 async function preview(id) {
@@ -139,7 +139,7 @@ async function push(id, btn) {
                 toast(err.message, 'danger');
             }
         }
-    });
+    }, { busyLabel: t('action.applying') });
 }
 
 export function init() {

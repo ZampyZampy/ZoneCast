@@ -122,10 +122,22 @@ def _page_context(db) -> dict:
     }
 
 
+def _session_user(request: Request, db) -> User | None:
+    """The signed-in, still active user — or None, clearing a session left
+    behind by a deleted or deactivated account: / and /login would
+    otherwise redirect to each other until the cookie expires."""
+    user_id = request.session.get("user_id")
+    if not user_id:
+        return None
+    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
+    if not user:
+        request.session.clear()
+    return user
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, db=Depends(get_db)):
-    user_id = request.session.get("user_id")
-    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first() if user_id else None
+    user = _session_user(request, db)
     if not user:
         return RedirectResponse(url="/login")
     # Admin-only panels aren't sent to operators at all: nothing to hide
@@ -140,7 +152,7 @@ def index(request: Request, db=Depends(get_db)):
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, db=Depends(get_db)):
-    if request.session.get("user_id"):
+    if _session_user(request, db):
         return RedirectResponse(url="/")
     return templates.TemplateResponse(request, "login.html", _page_context(db))
 

@@ -1,0 +1,33 @@
+# Tool configuration only: ZoneCast isn't packaged or installed as a
+# library. Dependencies live in requirements*.in (what we ask for) and
+# requirements*.txt (the full, hash-locked set generated from them — see
+# CONTRIBUTING.md); the app version lives in app/version.py.
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+extend-exclude = ["docs", "app/static"]
+
+[tool.ruff.lint]
+select = ["F", "E4", "E7", "E9", "W6", "B"]
+# FastAPI's Depends()/File() in parameter defaults is its documented pattern.
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# A new warning (a deprecation in a dependency, a leaked connection...)
+# fails the build instead of scrolling by unnoticed.
+filterwarnings = [
+    "error",
+    # Starlette's own TestClient, not our code.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated",
+]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/tools/*"]
+
+[tool.coverage.report]
+skip_covered = true
+show_missing = true

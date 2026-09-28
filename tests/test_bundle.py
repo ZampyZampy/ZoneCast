@@ -46,7 +46,11 @@ def test_export_import_round_trip(tmp_path):
     names = bundle.extract_bundle(data=data, password="pw", target_root=out)
 
     assert set(names) == {"data/zonecast.db", "data/secret.key", "media/sub/a.wav"}
-    assert sqlite3.connect(out / "data" / "zonecast.db").execute("select x from t").fetchone() == (42,)
+    con = sqlite3.connect(out / "data" / "zonecast.db")
+    try:
+        assert con.execute("select x from t").fetchone() == (42,)
+    finally:
+        con.close()
     assert (out / "media" / "sub" / "a.wav").read_bytes() == b"RIFF"
 
 

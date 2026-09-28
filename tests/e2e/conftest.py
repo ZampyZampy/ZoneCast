@@ -55,6 +55,7 @@ def server(tmp_path_factory):
     }
     proc = subprocess.Popen([sys.executable, "-m", "tests.e2e._server"], cwd=work, env=env)
     url = f"http://127.0.0.1:{port}"
+    api = httpx.Client(base_url=url, timeout=10)
     try:
         for _ in range(100):
             try:
@@ -64,11 +65,11 @@ def server(tmp_path_factory):
                 time.sleep(0.2)
         else:
             pytest.fail("e2e server did not start")
-        api = httpx.Client(base_url=url, timeout=10)
         api.post("/api/auth/login", json={"username": "admin", "password": ADMIN_PASSWORD}).raise_for_status()
         api.post("/api/auth/users", json={"username": OPERATOR[0], "password": OPERATOR[1], "role": "operator"}).raise_for_status()
         yield SimpleNamespace(url=url, work=work, api=api, db=work / "data" / "zonecast.db")
     finally:
+        api.close()
         proc.terminate()
         proc.wait(timeout=15)
 

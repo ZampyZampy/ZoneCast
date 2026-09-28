@@ -46,6 +46,8 @@ def update_zone(
     if not zone:
         raise AppError(404, "zones.not_found", "Zone not found.")
     new_values = payload.model_dump()
+    if db.query(Zone.id).filter(Zone.name == new_values["name"], Zone.id != zone.id).first():
+        raise AppError(400, "zones.name_taken", "A zone with this name already exists.")
     paging_changed = any(getattr(zone, f) != new_values[f] for f in _PAGING_RELEVANT_FIELDS)
     if paging_changed:
         try:

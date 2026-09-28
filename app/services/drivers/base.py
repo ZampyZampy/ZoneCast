@@ -61,7 +61,7 @@ async def generic_check_reachable(speaker: Speaker, timeout: float = 2.0) -> boo
         return False
 
 
-class SpeakerDriver(ABC):
+class SpeakerDriver(ABC):  # noqa: B024 — every capability is optional; unsupported ones raise NotImplementedError
     brand: str = "generic"
     supports_multicast_push: bool = False
     supports_config_backup: bool = False

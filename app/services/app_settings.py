@@ -25,7 +25,7 @@ def _rgb_to_hex(rgb: tuple[float, float, float]) -> str:
 
 
 def _mix(c1: tuple[int, int, int], c2: tuple[int, int, int], t: float) -> tuple[float, float, float]:
-    return tuple(a + (b - a) * t for a, b in zip(c1, c2))
+    return tuple(a + (b - a) * t for a, b in zip(c1, c2, strict=True))
 
 
 def derive_theme_shades(hex_color: str) -> dict:

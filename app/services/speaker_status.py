@@ -5,12 +5,12 @@ the periodic background check (services/scheduler.py's
 _check_all_speakers_job, every CHECK_INTERVAL_MINUTES).
 """
 import logging
-from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from ..models import Speaker, SpeakerStatus
 from .drivers import generic_check_reachable, get_driver
+from ..timeutil import utcnow
 
 CHECK_INTERVAL_MINUTES = 5
 
@@ -23,7 +23,7 @@ async def check_and_update(db: Session, speaker: Speaker) -> bool:
     previous = speaker.status
     speaker.status = SpeakerStatus.online if reachable else SpeakerStatus.offline
     if reachable:
-        speaker.last_seen = datetime.utcnow()
+        speaker.last_seen = utcnow()
     db.commit()
     if previous != speaker.status:
         logger.info("Altoparlante '%s' (%s): %s -> %s", speaker.name, speaker.ip_address, previous.value, speaker.status.value)

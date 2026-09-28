@@ -1,5 +1,4 @@
 import uuid
-from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
@@ -79,6 +78,9 @@ def update_speaker(
     if not speaker:
         raise AppError(404, "speakers.not_found", "Speaker not found.")
     changed_fields = payload.model_dump(exclude_unset=True)
+    new_ip = changed_fields.get("ip_address")
+    if new_ip is not None and db.query(Speaker.id).filter(Speaker.ip_address == new_ip, Speaker.id != speaker.id).first():
+        raise AppError(400, "speakers.ip_taken", "A speaker with this IP address already exists.")
     if "own_multicast_address" in changed_fields or "own_multicast_port" in changed_fields:
         new_address = changed_fields.get("own_multicast_address", speaker.own_multicast_address)
         new_port = changed_fields.get("own_multicast_port", speaker.own_multicast_port)

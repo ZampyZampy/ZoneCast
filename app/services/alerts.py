@@ -5,12 +5,13 @@ recent failed scheduled playbacks, and disk space running low.
 Read-only and cheap enough to compute on every login.
 """
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy.orm import Session
 
 from . import host_resources
 from ..models import PlaybackLog, PlaybackSource, PlaybackStatus
+from ..timeutil import utcnow
 
 FAILED_PLAYBACK_LOOKBACK = timedelta(hours=24)
 DISK_WARNING_PERCENT = 75.0
@@ -28,7 +29,7 @@ class Alert:
 def get_alerts(db: Session) -> list[Alert]:
     alerts: list[Alert] = []
 
-    cutoff = datetime.utcnow() - FAILED_PLAYBACK_LOOKBACK
+    cutoff = utcnow() - FAILED_PLAYBACK_LOOKBACK
     failed_count = (
         db.query(PlaybackLog)
         .filter(

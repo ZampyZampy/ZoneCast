@@ -207,7 +207,7 @@ function bindExportImport() {
                 errBox.textContent = err.message;
                 errBox.classList.remove('d-none');
             }
-        });
+        }, { busyLabel: t('toast.exporting') });
     });
     $('import-upload-btn').addEventListener('click', (e) => {
         const errBox = $('import-error');
@@ -222,15 +222,15 @@ function bindExportImport() {
         fd.append('password', $('import-password').value);
         withBusy(e.currentTarget, async () => {
             try {
-                const data = await upload('/api/system/import', fd);
-                infoBox.textContent = data.message;
+                await upload('/api/system/import', fd);
+                infoBox.textContent = t('system.importQueued');
                 infoBox.classList.remove('d-none');
                 toast(t('toast.importStarted'));
             } catch (err) {
                 errBox.textContent = err.message;
                 errBox.classList.remove('d-none');
             }
-        });
+        }, { busyLabel: t('toast.importing') });
     });
 }
 

@@ -14,8 +14,9 @@ login attempts, etc.) do.
 """
 import logging
 import queue
-from datetime import datetime, timedelta
+from datetime import timedelta
 from logging.handlers import QueueHandler, QueueListener
+from ..timeutil import utcnow
 
 MAX_ROWS = 5000
 _PRUNE_TO = 4000
@@ -32,7 +33,7 @@ def prune_by_age(db, retention_days: int) -> int:
     None). Returns the number of rows deleted."""
     from ..models import EventLog
 
-    cutoff = datetime.utcnow() - timedelta(days=retention_days)
+    cutoff = utcnow() - timedelta(days=retention_days)
     deleted = db.query(EventLog).filter(EventLog.created_at < cutoff).delete()
     db.commit()
     return deleted

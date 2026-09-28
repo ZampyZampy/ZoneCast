@@ -18,6 +18,7 @@ os.environ["BACKUPS_DIR"] = str(_TMP / "backups")
 os.environ["SECRET_KEY"] = "test-only-secret-key-not-for-production"
 os.environ["DEFAULT_ADMIN_USERNAME"] = "admin"
 os.environ["DEFAULT_ADMIN_PASSWORD"] = "testpassword123"
+os.environ["RTP_MULTICAST_TTL"] = "0"  # multicast audio never leaves this machine
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -37,6 +38,46 @@ def _reset_rate_limiter():
     rate_limit._failed_attempts.clear()
     yield
     rate_limit._failed_attempts.clear()
+
+
+@pytest.fixture(autouse=True)
+def _no_device_network(monkeypatch):
+    """Tests must never reach real hosts: a developer's (or a CI runner's)
+    network can have actual PA speakers on it. Device I/O is a no-op by
+    default — tests exercising it monkeypatch their own fakes — and any
+    HTTP request to a non-local host fails the test outright."""
+    import httpx
+    from app.services import multicast_provisioning, rtp_multicast, speaker_status
+
+    async def _no_io(*_args, **_kwargs):
+        return None
+
+    def _no_rtp(_ttl):
+        raise RuntimeError("test tried to open an RTP multicast socket — fake rtp_multicast._make_socket instead")
+
+    monkeypatch.setattr(rtp_multicast, "_make_socket", _no_rtp)
+
+    monkeypatch.setattr(speaker_status, "check_and_update", _no_io)
+    monkeypatch.setattr(multicast_provisioning, "push_to_speaker_id", _no_io)
+    monkeypatch.setattr(multicast_provisioning, "push_to_zone_speakers", _no_io)
+
+    local = {"testserver", "127.0.0.1", "localhost"}
+    real_async_send, real_send = httpx.AsyncClient.send, httpx.Client.send
+
+    def _check(request):
+        if request.url.host not in local:
+            raise RuntimeError(f"test tried to contact {request.url.host} — stub the device I/O instead")
+
+    async def guarded_async_send(self, request, *args, **kwargs):
+        _check(request)
+        return await real_async_send(self, request, *args, **kwargs)
+
+    def guarded_send(self, request, *args, **kwargs):
+        _check(request)
+        return real_send(self, request, *args, **kwargs)
+
+    monkeypatch.setattr(httpx.AsyncClient, "send", guarded_async_send)
+    monkeypatch.setattr(httpx.Client, "send", guarded_send)
 
 
 @pytest.fixture()

@@ -2,7 +2,6 @@ import asyncio
 import os
 import threading
 import time
-from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
@@ -23,6 +22,7 @@ from ..services import system_time, bundle, network_config, pending_import, host
 from ..services import scheduler as scheduler_service
 from ..version import APP_VERSION, CHANGELOG
 from ..services.app_settings import get_settings
+from ..timeutil import utcnow
 
 router = APIRouter(prefix="/api/system", tags=["system"])
 
@@ -45,7 +45,7 @@ def export_bundle(payload: ExportRequest, _: User = Depends(require_admin)):
         )
     except Exception as exc:
         raise AppError(500, "system.export_failed", "Export failed.", detail=str(exc)) from exc
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    ts = utcnow().strftime("%Y%m%d_%H%M%S")
     return Response(
         content=data,
         media_type="application/octet-stream",
@@ -84,7 +84,7 @@ async def import_bundle(
     threading.Thread(target=_restart_soon, daemon=True).start()
     return ImportStagedOut(
         ok=True,
-        message="Import verificato e messo in coda. Il servizio si riavvia ora per completarlo — la pagina si disconnetterà per qualche secondo.",
+        message="Import verified and queued. The service is restarting now to complete it — the page will disconnect for a few seconds.",
     )
 
 

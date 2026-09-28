@@ -6,7 +6,6 @@ PlaybackLog entry so the dashboard can show history/status.
 """
 import asyncio
 import logging
-from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -16,7 +15,8 @@ from ..config import settings
 from ..errors import CodedError
 from ..database import SessionLocal
 from ..models import Media, Speaker, Zone, TargetType, PlaybackLog, PlaybackSource, PlaybackStatus
-from .rtp_multicast import stream_pcm_over_rtp, StreamHandle, RtpStreamError
+from .rtp_multicast import stream_pcm_over_rtp, StreamHandle
+from ..timeutil import utcnow
 
 logger = logging.getLogger("zonecast.player")
 
@@ -72,13 +72,13 @@ async def _run_stream(log_id: int, pcm_path: Path, mcast_addr: str, mcast_port: 
         await stream_pcm_over_rtp(pcm_path, mcast_addr, mcast_port, handle.stop_event)
         log = db.query(PlaybackLog).filter(PlaybackLog.id == log_id).first()
         if log:
-            log.finished_at = datetime.utcnow()
+            log.finished_at = utcnow()
             log.status = PlaybackStatus.stopped if handle.stop_event.is_set() else PlaybackStatus.completed
             db.commit()
     except asyncio.CancelledError:
         log = db.query(PlaybackLog).filter(PlaybackLog.id == log_id).first()
         if log:
-            log.finished_at = datetime.utcnow()
+            log.finished_at = utcnow()
             log.status = PlaybackStatus.stopped
             db.commit()
         raise
@@ -86,7 +86,7 @@ async def _run_stream(log_id: int, pcm_path: Path, mcast_addr: str, mcast_port: 
         logger.exception("Playback failed for log %s", log_id)
         log = db.query(PlaybackLog).filter(PlaybackLog.id == log_id).first()
         if log:
-            log.finished_at = datetime.utcnow()
+            log.finished_at = utcnow()
             log.status = PlaybackStatus.failed
             log.error_message = str(exc)[:500]
             db.commit()
@@ -166,7 +166,7 @@ def record_failed_run(db: Session, schedule, reason: str) -> None:
     """History row for a scheduled run that never started (media or
     target deleted, group busy, run missed) — so it shows in the history
     and in the login alert instead of only in the server log."""
-    now = datetime.utcnow()
+    now = utcnow()
     db.add(PlaybackLog(
         media_id=schedule.media_id,
         target_type=schedule.target_type,
@@ -193,7 +193,7 @@ def reconcile_interrupted() -> int:
             .filter(PlaybackLog.status == PlaybackStatus.running)
             .update({
                 PlaybackLog.status: PlaybackStatus.failed,
-                PlaybackLog.finished_at: datetime.utcnow(),
+                PlaybackLog.finished_at: utcnow(),
                 PlaybackLog.error_message: INTERRUPTED_MESSAGE,
             }, synchronize_session=False)
         )

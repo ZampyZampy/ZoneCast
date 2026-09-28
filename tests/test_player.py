@@ -44,7 +44,7 @@ def test_sender_resyncs_after_a_stall_instead_of_bursting(tmp_path, monkeypatch)
     asyncio.run(rtp_multicast.stream_pcm_over_rtp(pcm, "239.255.0.1", 5004, threading.Event(),
                                                   payload_type=0, packet_ms=20, ttl=0))
 
-    gaps = [b - a for a, b in zip(sock.sent_at, sock.sent_at[1:])]
+    gaps = [b - a for a, b in zip(sock.sent_at, sock.sent_at[1:], strict=False)]
     assert len(sock.sent_at) == 50
     assert max(gaps) >= 0.29  # the stall is heard as a gap...
     # ...but not followed by a burst of the ~15 packets that fell behind

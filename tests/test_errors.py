@@ -87,3 +87,29 @@ def test_error_translation_placeholders_match_english():
         expected = set(re.findall(r"\{(\w+)\}", english))
         for lang in LANGS[1:]:
             assert set(re.findall(r"\{(\w+)\}", translations[lang][key])) == expected, (lang, key)
+
+
+def test_model_validator_codes_reach_the_client(admin_client, media_id):
+    base = {"name": "x", "media_id": media_id, "time_of_day": "08:00:00", "days_of_week": "mon"}
+    res = admin_client.post("/api/schedules", json={**base, "target_type": "all",
+                                                    "start_date": "2026-05-02", "end_date": "2026-05-01"})
+    assert res.status_code == 422 and _detail(res)["code"] == "schedules.dates_inverted"
+    res = admin_client.post("/api/schedules", json={**base, "target_type": "zone"})
+    assert res.status_code == 422 and _detail(res)["code"] == "schedules.target_required"
+
+
+def test_renaming_a_zone_onto_another_name_is_a_coded_error(admin_client):
+    admin_client.post("/api/zones", json={"name": "Taken", "multicast_address": "239.255.40.1"})
+    other = admin_client.post("/api/zones", json={"name": "Other", "multicast_address": "239.255.40.2"}).json()
+    res = admin_client.put(f"/api/zones/{other['id']}", json={"name": "Taken", "multicast_address": "239.255.40.2"})
+    assert res.status_code == 400 and _detail(res)["code"] == "zones.name_taken"
+
+
+def test_moving_a_speaker_onto_a_used_ip_is_a_coded_error(admin_client):
+    def speaker(ip, group):
+        return admin_client.post("/api/speakers", json={
+            "name": ip, "ip_address": ip, "own_multicast_address": group, "brand": "other"}).json()
+    speaker("198.18.40.1", "239.254.40.1")
+    second = speaker("198.18.40.2", "239.254.40.2")
+    res = admin_client.put(f"/api/speakers/{second['id']}", json={"ip_address": "198.18.40.1"})
+    assert res.status_code == 400 and _detail(res)["code"] == "speakers.ip_taken"

@@ -13,6 +13,7 @@ from ..deps import require_admin
 from ..models import EventLog, User
 from ..schemas import EventLogOut, LogSettingsOut, LogSettingsUpdate
 from ..services.app_settings import get_settings
+from ..timeutil import utcnow
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
@@ -56,7 +57,7 @@ def export_logs(
     dashboard's live view — as CSV or JSON, for archiving or sharing
     outside the app."""
     rows = _filtered_query(db, level, q).all()
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    ts = utcnow().strftime("%Y%m%d_%H%M%S")
 
     if format == "json":
         payload = [
