@@ -5,8 +5,9 @@ Schedule.target_id can't have one: it points at a speaker OR a zone), so
 without these checks deleting an audio file or a zone left schedules
 that failed only when they fired.
 """
-from fastapi import HTTPException
 from sqlalchemy.orm import Session
+
+from ..errors import AppError
 
 from ..models import Media, Schedule, Speaker, TargetType, Zone
 
@@ -24,24 +25,21 @@ def schedules_targeting(db: Session, target_type: TargetType, target_id: int) ->
     )
 
 
-def refuse_if_used(schedules: list[Schedule], what: str) -> None:
+def refuse_if_used(schedules: list[Schedule], code: str, what: str) -> None:
     """409 naming the schedules that would break, so the user knows what
     to edit or delete first."""
     if not schedules:
         return
     names = ", ".join(s.name for s in schedules[:5]) + (", …" if len(schedules) > 5 else "")
-    noun = "schedulazione" if len(schedules) == 1 else "schedulazioni"
-    raise HTTPException(
-        status_code=409,
-        detail=f"{what} è usato da {len(schedules)} {noun}: {names}. Modificale o eliminale prima.",
-    )
+    raise AppError(409, code, f"{what} is used by {len(schedules)} schedule(s): {names}. Edit or delete them first.",
+                   count=len(schedules), names=names)
 
 
 def check_schedule_references(db: Session, sched: Schedule) -> None:
     """422 if a schedule points at an audio file or target that doesn't exist."""
     if not db.query(Media.id).filter(Media.id == sched.media_id).first():
-        raise HTTPException(status_code=422, detail=f"File audio {sched.media_id} non trovato")
+        raise AppError(422, "schedules.media_missing", "The selected audio file no longer exists.", media_id=sched.media_id)
     if sched.target_type == TargetType.zone and not db.query(Zone.id).filter(Zone.id == sched.target_id).first():
-        raise HTTPException(status_code=422, detail=f"Zona {sched.target_id} non trovata")
+        raise AppError(422, "schedules.zone_missing", "The selected zone no longer exists.", target_id=sched.target_id)
     if sched.target_type == TargetType.speaker and not db.query(Speaker.id).filter(Speaker.id == sched.target_id).first():
-        raise HTTPException(status_code=422, detail=f"Altoparlante {sched.target_id} non trovato")
+        raise AppError(422, "schedules.speaker_missing", "The selected speaker no longer exists.", target_id=sched.target_id)

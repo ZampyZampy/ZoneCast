@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
+from ..errors import AppError
 from ..deps import require_admin
 from ..models import SpeakerConfigBackup, User
 from ..schemas import SpeakerBackupOut
@@ -24,10 +25,10 @@ def list_all_backups(db: Session = Depends(get_db), _: User = Depends(require_ad
 def download_backup(backup_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     backup = db.query(SpeakerConfigBackup).filter(SpeakerConfigBackup.id == backup_id).first()
     if not backup:
-        raise HTTPException(status_code=404, detail="Backup non trovato")
+        raise AppError(404, "backups.not_found", "Backup not found.")
     path = settings.backups_dir / backup.stored_filename
     if not path.exists():
-        raise HTTPException(status_code=404, detail="File di backup non presente sul server")
+        raise AppError(404, "backups.file_missing", "The backup file is missing on the server.")
     ts = backup.created_at.strftime("%Y%m%d_%H%M%S")
     filename = f"{backup.speaker_name or 'speaker'}_{ts}.{backup.format}"
     return FileResponse(path, filename=filename, media_type="text/plain")
@@ -37,7 +38,7 @@ def download_backup(backup_id: int, db: Session = Depends(get_db), _: User = Dep
 def delete_backup(backup_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     backup = db.query(SpeakerConfigBackup).filter(SpeakerConfigBackup.id == backup_id).first()
     if not backup:
-        raise HTTPException(status_code=404, detail="Backup non trovato")
+        raise AppError(404, "backups.not_found", "Backup not found.")
     (settings.backups_dir / backup.stored_filename).unlink(missing_ok=True)
     db.delete(backup)
     db.commit()

@@ -1,9 +1,10 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..errors import AppError
 from ..deps import get_current_user, require_admin
 from ..models import User
 from ..schemas import (
@@ -30,16 +31,14 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
     locked_for = rate_limit.is_locked_out(payload.username, client_ip)
     if locked_for:
         logger.warning("Login bloccato (rate limit) per '%s' da %s — riprovare tra %ds", payload.username, client_ip, locked_for)
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Troppi tentativi falliti. Riprova tra {locked_for} secondi.",
-        )
+        raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "auth.too_many_attempts",
+                       f"Too many failed attempts. Try again in {locked_for} seconds.", seconds=locked_for)
 
     user = db.query(User).filter(User.username == payload.username, User.is_active.is_(True)).first()
     if not user or not verify_password(payload.password, user.password_hash):
         rate_limit.record_failure(payload.username, client_ip)
         logger.warning("Login fallito per utente '%s' da %s", payload.username, client_ip)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenziali non valide")
+        raise AppError(status.HTTP_401_UNAUTHORIZED, "auth.invalid_credentials", "Invalid username or password.")
 
     rate_limit.record_success(payload.username, client_ip)
 
@@ -61,19 +60,17 @@ def login_2fa(payload: TwoFactorLoginRequest, request: Request, db: Session = De
     client_ip = _client_ip(request)
     user_id = request.session.get("pending_2fa_user_id")
     if not user_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nessun login in corso")
+        raise AppError(status.HTTP_400_BAD_REQUEST, "auth.no_login_in_progress", "No sign-in in progress: start again.")
     user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
     if not user or not user.totp_enabled:
         request.session.clear()
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Nessun login in corso")
+        raise AppError(status.HTTP_400_BAD_REQUEST, "auth.no_login_in_progress", "No sign-in in progress: start again.")
 
     rl_key = f"2fa:{user.username}"
     locked_for = rate_limit.is_locked_out(rl_key, client_ip)
     if locked_for:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Troppi tentativi falliti. Riprova tra {locked_for} secondi.",
-        )
+        raise AppError(status.HTTP_429_TOO_MANY_REQUESTS, "auth.too_many_attempts",
+                       f"Too many failed attempts. Try again in {locked_for} seconds.", seconds=locked_for)
 
     if totp_2fa.verify_code(user.totp_secret, payload.code):
         rate_limit.record_success(rl_key, client_ip)
@@ -87,7 +84,7 @@ def login_2fa(payload: TwoFactorLoginRequest, request: Request, db: Session = De
         else:
             rate_limit.record_failure(rl_key, client_ip)
             logger.warning("Codice 2FA errato per utente '%s' da %s", user.username, client_ip)
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Codice non valido")
+            raise AppError(status.HTTP_401_UNAUTHORIZED, "auth.invalid_code", "Invalid code.")
 
     request.session.clear()
     request.session["user_id"] = user.id
@@ -108,7 +105,7 @@ def me(user: User = Depends(get_current_user)):
 
 def _check_password_strength(password: str) -> None:
     if len(password) < MIN_PASSWORD_LENGTH:
-        raise HTTPException(status_code=400, detail=f"La password deve avere almeno {MIN_PASSWORD_LENGTH} caratteri")
+        raise AppError(400, "auth.password_too_short", f"The password must be at least {MIN_PASSWORD_LENGTH} characters long.", min=MIN_PASSWORD_LENGTH)
 
 
 @router.post("/me/password")
@@ -118,7 +115,7 @@ def change_my_password(
     user: User = Depends(get_current_user),
 ):
     if not verify_password(payload.current_password, user.password_hash):
-        raise HTTPException(status_code=400, detail="Password attuale non corretta")
+        raise AppError(400, "auth.wrong_current_password", "The current password is incorrect.")
     _check_password_strength(payload.new_password)
     user.password_hash = hash_password(payload.new_password)
     db.commit()
@@ -140,7 +137,7 @@ def two_factor_setup(db: Session = Depends(get_db), user: User = Depends(get_cur
     totp_enabled stays False until /me/2fa/confirm proves the user's
     authenticator app is actually reading it correctly)."""
     if user.totp_enabled:
-        raise HTTPException(status_code=400, detail="La 2FA è già attiva. Disattivala prima di rigenerarla.")
+        raise AppError(400, "auth.2fa_already_enabled", "Two-factor authentication is already enabled.")
     secret = totp_2fa.generate_secret()
     user.totp_secret = secret
     db.commit()
@@ -151,11 +148,11 @@ def two_factor_setup(db: Session = Depends(get_db), user: User = Depends(get_cur
 @router.post("/me/2fa/confirm", response_model=TwoFactorConfirmOut)
 def two_factor_confirm(payload: TwoFactorConfirmRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if user.totp_enabled:
-        raise HTTPException(status_code=400, detail="La 2FA è già attiva")
+        raise AppError(400, "auth.2fa_already_enabled", "Two-factor authentication is already enabled.")
     if not user.totp_secret:
-        raise HTTPException(status_code=400, detail="Nessuna configurazione 2FA in corso — avvia prima /me/2fa/setup")
+        raise AppError(400, "auth.2fa_no_setup", "No two-factor setup in progress: start it again.")
     if not totp_2fa.verify_code(user.totp_secret, payload.code):
-        raise HTTPException(status_code=400, detail="Codice non valido")
+        raise AppError(400, "auth.invalid_code", "Invalid code.")
     codes, hashed = totp_2fa.generate_recovery_codes()
     user.totp_enabled = True
     user.totp_recovery_codes = hashed
@@ -167,7 +164,7 @@ def two_factor_confirm(payload: TwoFactorConfirmRequest, db: Session = Depends(g
 @router.post("/me/2fa/disable")
 def two_factor_disable(payload: TwoFactorDisableRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=400, detail="Password non corretta")
+        raise AppError(400, "auth.wrong_password", "Incorrect password.")
     user.totp_enabled = False
     user.totp_secret = None
     user.totp_recovery_codes = None
@@ -179,9 +176,9 @@ def two_factor_disable(payload: TwoFactorDisableRequest, db: Session = Depends(g
 @router.post("/me/2fa/recovery-codes/regenerate", response_model=TwoFactorConfirmOut)
 def two_factor_regenerate_codes(payload: TwoFactorDisableRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if not user.totp_enabled:
-        raise HTTPException(status_code=400, detail="La 2FA non è attiva")
+        raise AppError(400, "auth.2fa_not_enabled", "Two-factor authentication is not enabled.")
     if not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=400, detail="Password non corretta")
+        raise AppError(400, "auth.wrong_password", "Incorrect password.")
     codes, hashed = totp_2fa.generate_recovery_codes()
     user.totp_recovery_codes = hashed
     db.commit()
@@ -197,7 +194,7 @@ def list_users(db: Session = Depends(get_db), _: User = Depends(require_admin)):
 @router.post("/users", response_model=UserOut)
 def create_user(payload: UserCreate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     if db.query(User).filter(User.username == payload.username).first():
-        raise HTTPException(status_code=400, detail="Username già esistente")
+        raise AppError(400, "users.username_taken", "That username already exists.")
     _check_password_strength(payload.password)
     user = User(
         username=payload.username,
@@ -215,7 +212,7 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), _: User = De
 def update_user(user_id: int, payload: UserUpdate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="Utente non trovato")
+        raise AppError(404, "users.not_found", "User not found.")
     if payload.full_name is not None:
         user.full_name = payload.full_name
     if payload.role is not None:
@@ -231,12 +228,12 @@ def update_user(user_id: int, payload: UserUpdate, db: Session = Depends(get_db)
 @router.delete("/users/{user_id}")
 def delete_user(user_id: int, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     if user_id == admin.id:
-        raise HTTPException(status_code=400, detail="Non puoi eliminare il tuo stesso utente")
+        raise AppError(400, "users.cannot_delete_self", "You can't delete your own account.")
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(status_code=404, detail="Utente non trovato")
+        raise AppError(404, "users.not_found", "User not found.")
     if user.is_protected:
-        raise HTTPException(status_code=400, detail="L'utente admin di default non può essere eliminato")
+        raise AppError(400, "users.cannot_delete_default", "The default admin account can't be deleted.")
     db.delete(user)
     db.commit()
     return {"ok": True}

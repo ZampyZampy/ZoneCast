@@ -5,12 +5,13 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from ..config import settings as app_config
 from ..database import get_db
+from ..errors import AppError, CodedError
 from ..deps import require_admin
 from ..models import User
 from ..schemas import (
@@ -43,7 +44,7 @@ def export_bundle(payload: ExportRequest, _: User = Depends(require_admin)):
             backups_dir=app_config.backups_dir,
         )
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Export fallito: {exc}") from exc
+        raise AppError(500, "system.export_failed", "Export failed.", detail=str(exc)) from exc
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     return Response(
         content=data,
@@ -71,10 +72,10 @@ async def import_bundle(
     try:
         # PBKDF2 + decryption + extraction: seconds of CPU, kept off the loop.
         await asyncio.to_thread(pending_import.stage, data, password)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except CodedError as exc:
+        raise exc.http(400) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Import fallito: {exc}") from exc
+        raise AppError(500, "system.import_failed", "Import failed.", detail=str(exc)) from exc
 
     def _restart_soon():
         time.sleep(1.5)  # let the HTTP response reach the client first
@@ -92,7 +93,7 @@ def get_time(_: User = Depends(require_admin)):
     try:
         status = system_time.get_status().__dict__
     except system_time.SystemTimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise AppError(502, "system.command_failed", "The system operation failed.", detail=str(exc)) from exc
     return {**status, "scheduler_timezone": scheduler_service.scheduler_timezone()}
 
 
@@ -101,7 +102,7 @@ def set_manual_time(payload: SetManualTimeRequest, _: User = Depends(require_adm
     try:
         ntp_disabled = system_time.set_manual_time(payload.datetime_local)
     except system_time.SystemTimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise AppError(502, "system.command_failed", "The system operation failed.", detail=str(exc)) from exc
     scheduler_service.wakeup()
     return {"ok": True, "ntp_disabled": ntp_disabled}
 
@@ -111,7 +112,7 @@ def get_timezones(_: User = Depends(require_admin)):
     try:
         return system_time.list_timezones()
     except system_time.SystemTimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise AppError(502, "system.command_failed", "The system operation failed.", detail=str(exc)) from exc
 
 
 @router.post("/time/ntp")
@@ -119,7 +120,7 @@ def set_ntp(payload: SetNtpEnabledRequest, _: User = Depends(require_admin)):
     try:
         system_time.set_ntp_enabled(payload.enabled)
     except system_time.SystemTimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise AppError(502, "system.command_failed", "The system operation failed.", detail=str(exc)) from exc
     scheduler_service.wakeup()
     return {"ok": True}
 
@@ -129,11 +130,11 @@ def set_timezone(payload: SetTimezoneRequest, db: Session = Depends(get_db), _: 
     try:
         ZoneInfo(payload.timezone)
     except (ZoneInfoNotFoundError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=f"Fuso orario sconosciuto: {payload.timezone}") from exc
+        raise AppError(400, "system.unknown_timezone", f"Unknown timezone: {payload.timezone}.", timezone=payload.timezone) from exc
     try:
         system_time.set_timezone(payload.timezone)
     except system_time.SystemTimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise AppError(502, "system.command_failed", "The system operation failed.", detail=str(exc)) from exc
     # One timezone for everything: schedules follow the host from now on.
     get_settings(db).scheduler_timezone = payload.timezone
     db.commit()
@@ -146,7 +147,7 @@ def set_ntp_servers(payload: SetNtpServersRequest, _: User = Depends(require_adm
     try:
         system_time.set_ntp_servers(payload.servers)
     except system_time.SystemTimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise AppError(502, "system.command_failed", "The system operation failed.", detail=str(exc)) from exc
     return {"ok": True}
 
 
@@ -160,7 +161,7 @@ def get_resources(_: User = Depends(require_admin)):
     try:
         return host_resources.get_snapshot().__dict__
     except host_resources.HostResourcesError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise AppError(502, "system.command_failed", "The system operation failed.", detail=str(exc)) from exc
 
 
 @router.get("/network", response_model=NetworkStatusOut)
@@ -168,7 +169,7 @@ def get_network(interface: str | None = None, _: User = Depends(require_admin)):
     try:
         return network_config.get_current(interface).__dict__
     except network_config.NetworkConfigError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise AppError(502, "system.command_failed", "The system operation failed.", detail=str(exc)) from exc
 
 
 @router.post("/network/apply", response_model=NetworkApplyOut)
@@ -183,7 +184,7 @@ def apply_network(payload: NetworkApplyRequest, _: User = Depends(require_admin)
             payload.interface, payload.address_cidr, payload.gateway, payload.dns_servers
         )
     except network_config.NetworkConfigError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise AppError(400, "system.network_invalid", "Invalid network settings.", detail=str(exc)) from exc
     return NetworkApplyOut(watchdog_seconds=seconds)
 
 
@@ -192,7 +193,7 @@ def confirm_network(_: User = Depends(require_admin)):
     try:
         network_config.confirm()
     except network_config.NetworkConfigError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raise AppError(502, "system.command_failed", "The system operation failed.", detail=str(exc)) from exc
     return {"ok": True}
 
 

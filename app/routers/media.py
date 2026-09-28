@@ -4,12 +4,13 @@ import re
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, UploadFile, File
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
+from ..errors import AppError
 from ..deps import get_current_user
 from ..models import Media, User
 from ..schemas import MediaOut
@@ -65,7 +66,7 @@ async def upload_media(
             while chunk := await file.read(1024 * 1024):
                 size += len(chunk)
                 if size > limit:
-                    raise HTTPException(status_code=400, detail=f"File troppo grande (max {settings.max_upload_mb} MB)")
+                    raise AppError(400, "media.too_large", f"File too large (max {settings.max_upload_mb} MB).", max_mb=settings.max_upload_mb)
                 out.write(chunk)
     except BaseException:
         src_path.unlink(missing_ok=True)
@@ -77,18 +78,15 @@ async def upload_media(
         duration = await asyncio.to_thread(convert_to_pcm8k, src_path, pcm_path)
     except AudioConversionError as exc:
         src_path.unlink(missing_ok=True)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Impossibile elaborare il file come audio (formato non riconosciuto o file corrotto): {exc}",
-        ) from exc
+        raise AppError(400, "media.not_audio",
+                       "The file couldn't be processed as audio (unknown format or corrupted file).",
+                       detail=str(exc)[-300:]) from exc
 
     if duration > settings.max_duration_seconds:
         src_path.unlink(missing_ok=True)
         pcm_path.unlink(missing_ok=True)
-        raise HTTPException(
-            status_code=400,
-            detail=f"Durata troppo lunga: {duration:.0f}s (max {settings.max_duration_seconds}s)",
-        )
+        raise AppError(400, "media.too_long", f"Too long: {duration:.0f} s (max {settings.max_duration_seconds} s).",
+                       seconds=f"{duration:.0f}", max_seconds=settings.max_duration_seconds)
 
     media = Media(
         original_filename=file.filename,
@@ -137,21 +135,21 @@ async def normalize_media(media_id: int, db: Session = Depends(get_db), _: User 
 async def _normalize(media_id: int, db: Session) -> Media:
     media = db.query(Media).filter(Media.id == media_id).first()
     if not media:
-        raise HTTPException(status_code=404, detail="File non trovato")
+        raise AppError(404, "media.not_found", "Audio file not found.")
     db.refresh(media)  # the previous holder of the lock may just have changed it
     if not media.suggested_gain_db:
-        raise HTTPException(status_code=400, detail="Questo file è già al massimo livello utile, nessuna amplificazione necessaria")
+        raise AppError(400, "media.already_max", "This file is already at its maximum useful level.")
 
     src_path = settings.media_dir / media.stored_filename
     pcm_path = settings.media_dir / media.pcm_filename
     if not src_path.exists():
-        raise HTTPException(status_code=404, detail="File non presente sul server")
+        raise AppError(404, "media.file_missing", "The audio file is missing on the server.")
 
     try:
         await asyncio.to_thread(audio_analysis.apply_gain, src_path, media.suggested_gain_db)
         duration = await asyncio.to_thread(convert_to_pcm8k, src_path, pcm_path)
     except (audio_analysis.AudioAnalysisError, AudioConversionError) as exc:
-        raise HTTPException(status_code=502, detail=f"Amplificazione fallita: {exc}") from exc
+        raise AppError(502, "media.amplify_failed", "Amplification failed.", detail=str(exc)[-300:]) from exc
 
     media.duration_seconds = duration
     media.size_bytes = src_path.stat().st_size
@@ -166,10 +164,10 @@ async def _normalize(media_id: int, db: Session) -> Media:
 def download_media(media_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     media = db.query(Media).filter(Media.id == media_id).first()
     if not media:
-        raise HTTPException(status_code=404, detail="File non trovato")
+        raise AppError(404, "media.not_found", "Audio file not found.")
     path = settings.media_dir / media.stored_filename
     if not path.exists():
-        raise HTTPException(status_code=404, detail="File non presente sul server")
+        raise AppError(404, "media.file_missing", "The audio file is missing on the server.")
     return FileResponse(path, filename=media.original_filename, media_type=media.content_type or "application/octet-stream")
 
 
@@ -177,8 +175,8 @@ def download_media(media_id: int, db: Session = Depends(get_db), _: User = Depen
 def delete_media(media_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     media = db.query(Media).filter(Media.id == media_id).first()
     if not media:
-        raise HTTPException(status_code=404, detail="File non trovato")
-    references.refuse_if_used(references.schedules_using_media(db, media_id), f"Il file «{media.original_filename}»")
+        raise AppError(404, "media.not_found", "Audio file not found.")
+    references.refuse_if_used(references.schedules_using_media(db, media_id), "media.in_use", "This audio file")
     for fname in (media.stored_filename, media.pcm_filename):
         if fname:
             (settings.media_dir / fname).unlink(missing_ok=True)

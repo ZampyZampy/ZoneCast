@@ -13,6 +13,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..errors import CodedError
 from ..database import SessionLocal
 from ..models import Media, Speaker, Zone, TargetType, PlaybackLog, PlaybackSource, PlaybackStatus
 from .rtp_multicast import stream_pcm_over_rtp, StreamHandle, RtpStreamError
@@ -34,11 +35,11 @@ _group_locks: dict[tuple[int, str, int], asyncio.Lock] = {}
 INTERRUPTED_MESSAGE = "Interrotta: il servizio è stato riavviato durante la riproduzione"
 
 
-class TargetResolutionError(RuntimeError):
+class TargetResolutionError(CodedError):
     pass
 
 
-class GroupBusyError(RuntimeError):
+class GroupBusyError(CodedError):
     """A schedule fired while someone is making a manual announcement to
     the same group — the announcement wins, the schedule is recorded as
     failed rather than cutting it off."""
@@ -52,16 +53,16 @@ def resolve_target(db: Session, target_type: TargetType, target_id: Optional[int
     if target_type == TargetType.speaker:
         speaker = db.query(Speaker).filter(Speaker.id == target_id).first()
         if not speaker:
-            raise TargetResolutionError(f"Speaker {target_id} non trovato")
+            raise TargetResolutionError("playback.target_not_found", f"Speaker {target_id} not found", target_id=target_id)
         return speaker.own_multicast_address, speaker.own_multicast_port, speaker.name
 
     if target_type == TargetType.zone:
         zone = db.query(Zone).filter(Zone.id == target_id).first()
         if not zone:
-            raise TargetResolutionError(f"Zona {target_id} non trovata")
+            raise TargetResolutionError("playback.target_not_found", f"Zone {target_id} not found", target_id=target_id)
         return zone.multicast_address, zone.multicast_port, zone.name
 
-    raise TargetResolutionError("Target non valido")
+    raise TargetResolutionError("playback.target_not_found", "Invalid destination")
 
 
 async def _run_stream(log_id: int, pcm_path: Path, mcast_addr: str, mcast_port: int):
@@ -117,9 +118,9 @@ async def play(
 ) -> PlaybackLog:
     media = db.query(Media).filter(Media.id == media_id).first()
     if not media:
-        raise TargetResolutionError(f"Media {media_id} non trovato")
+        raise TargetResolutionError("playback.media_not_found", f"Audio file {media_id} not found", media_id=media_id)
     if not media.pcm_filename:
-        raise TargetResolutionError("Il file non è stato ancora convertito per lo streaming")
+        raise TargetResolutionError("playback.not_converted", "The file hasn't been converted for streaming yet")
 
     mcast_addr, mcast_port, label = resolve_target(db, target_type, target_id)
     pcm_path = settings.media_dir / media.pcm_filename
@@ -129,7 +130,7 @@ async def play(
         busy_id = _group_owner.get((mcast_addr, mcast_port))
         if busy_id is not None:
             if source == PlaybackSource.schedule and _stream_source.get(busy_id) == PlaybackSource.manual:
-                raise GroupBusyError("Destinazione occupata da un annuncio manuale in corso")
+                raise GroupBusyError("playback.group_busy", "Destination busy with a manual announcement")
             # Otherwise the newest request wins: finish the old stream
             # first so the two never overlap on the group.
             await _stop_and_wait(busy_id)

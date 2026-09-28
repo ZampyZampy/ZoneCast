@@ -1,11 +1,12 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..database import get_db
+from ..errors import AppError
 from ..deps import get_current_user, require_admin
 from ..models import Speaker, SpeakerConfigBackup, TargetType, User
 from ..schemas import SpeakerCreate, SpeakerUpdate, SpeakerOut, SpeakerBackupOut
@@ -37,11 +38,11 @@ def create_speaker(
     _: User = Depends(get_current_user),
 ):
     if db.query(Speaker).filter(Speaker.ip_address == payload.ip_address).first():
-        raise HTTPException(status_code=400, detail="IP già registrato")
+        raise AppError(400, "speakers.ip_taken", "A speaker with this IP address already exists.")
     try:
         check_address_available(db, payload.own_multicast_address, payload.own_multicast_port)
     except MulticastAddressConflict as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise exc.http(400) from exc
     speaker = Speaker(**payload.model_dump())
     db.add(speaker)
     db.commit()
@@ -76,7 +77,7 @@ def update_speaker(
 ):
     speaker = db.query(Speaker).filter(Speaker.id == speaker_id).first()
     if not speaker:
-        raise HTTPException(status_code=404, detail="Altoparlante non trovato")
+        raise AppError(404, "speakers.not_found", "Speaker not found.")
     changed_fields = payload.model_dump(exclude_unset=True)
     if "own_multicast_address" in changed_fields or "own_multicast_port" in changed_fields:
         new_address = changed_fields.get("own_multicast_address", speaker.own_multicast_address)
@@ -84,7 +85,7 @@ def update_speaker(
         try:
             check_address_available(db, new_address, new_port, exclude_speaker_id=speaker.id)
         except MulticastAddressConflict as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise exc.http(400) from exc
     # The form always sends every field: compare values, or any edit (a
     # typo in 'location') would trigger a full rewrite of the device.
     really_changed = {k for k, v in changed_fields.items() if getattr(speaker, k) != v}
@@ -101,8 +102,8 @@ def update_speaker(
 def delete_speaker(speaker_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     speaker = db.query(Speaker).filter(Speaker.id == speaker_id).first()
     if not speaker:
-        raise HTTPException(status_code=404, detail="Altoparlante non trovato")
-    references.refuse_if_used(references.schedules_targeting(db, TargetType.speaker, speaker_id), f"L'altoparlante «{speaker.name}»")
+        raise AppError(404, "speakers.not_found", "Speaker not found.")
+    references.refuse_if_used(references.schedules_targeting(db, TargetType.speaker, speaker_id), "speakers.in_use", "This speaker")
     # Config backups deliberately outlive the speaker (see
     # SpeakerConfigBackup docstring) — detach rather than cascade-delete.
     db.query(SpeakerConfigBackup).filter(SpeakerConfigBackup.speaker_id == speaker_id).update(
@@ -117,7 +118,7 @@ def delete_speaker(speaker_id: int, db: Session = Depends(get_db), _: User = Dep
 async def ping_speaker(speaker_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     speaker = db.query(Speaker).filter(Speaker.id == speaker_id).first()
     if not speaker:
-        raise HTTPException(status_code=404, detail="Altoparlante non trovato")
+        raise AppError(404, "speakers.not_found", "Speaker not found.")
     await speaker_status.check_and_update(db, speaker)
     db.refresh(speaker)
     return speaker
@@ -130,7 +131,7 @@ def multicast_preview(speaker_id: int, db: Session = Depends(get_db), _: User = 
     auto-push on a given speaker."""
     speaker = db.query(Speaker).filter(Speaker.id == speaker_id).first()
     if not speaker:
-        raise HTTPException(status_code=404, detail="Altoparlante non trovato")
+        raise AppError(404, "speakers.not_found", "Speaker not found.")
     entries = multicast_provisioning.compute_entries(speaker)
     return [
         {"index": e.index, "address": e.address, "port": e.port, "label": e.label, "priority": e.priority}
@@ -149,25 +150,16 @@ async def push_config_now(speaker_id: int, db: Session = Depends(get_db), _: Use
     which did not, rather than a single opaque success/fail flag."""
     speaker = db.query(Speaker).filter(Speaker.id == speaker_id).first()
     if not speaker:
-        raise HTTPException(status_code=404, detail="Altoparlante non trovato")
+        raise AppError(404, "speakers.not_found", "Speaker not found.")
     result = await multicast_provisioning.push_to_speaker(speaker)
     if result.unsupported_brand:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "message": f"Applicazione automatica non supportata per il brand '{speaker.brand or '(non impostato)'}' — solo Fanvil è supportato. Configura i gruppi multicast manualmente sul device (usa Anteprima).",
-                "unsupported_brand": True,
-            },
-        )
+        raise AppError(400, "speakers.push_unsupported",
+                       f"Automatic setup isn't supported for brand \"{speaker.brand or '-'}\": configure the multicast groups on the device (see Preview).",
+                       brand=speaker.brand or "-")
     if not result.success:
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "message": "Applicazione parziale o fallita — verificare credenziali/raggiungibilità/sintassi CGI per questo firmware",
-                "applied": result.applied_keys,
-                "failed": result.failed_keys,
-            },
-        )
+        raise AppError(502, "speakers.push_failed",
+                       "The device accepted only part of the configuration, or none of it: check credentials, reachability and firmware.",
+                       applied=result.applied_keys, failed=result.failed_keys)
     return {"ok": True, "applied": result.applied_keys}
 
 
@@ -185,18 +177,16 @@ async def create_backup(
     (/default_user_config.txt et al., see drivers/fanvil_http.py)."""
     speaker = db.query(Speaker).filter(Speaker.id == speaker_id).first()
     if not speaker:
-        raise HTTPException(status_code=404, detail="Altoparlante non trovato")
+        raise AppError(404, "speakers.not_found", "Speaker not found.")
     driver = get_driver(speaker.brand)
     if not driver or not driver.supports_config_backup:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Backup della configurazione non supportato per il brand '{speaker.brand or '(non impostato)'}'",
-        )
+        raise AppError(400, "speakers.backup_unsupported",
+                       f"Configuration backup isn't supported for brand \"{speaker.brand or '-'}\".", brand=speaker.brand or "-")
 
     try:
         content = await driver.export_config(speaker, fmt=fmt)
     except ConfigExportError as exc:
-        raise HTTPException(status_code=502, detail=f"Impossibile scaricare la configurazione dal device: {exc}") from exc
+        raise AppError(502, "speakers.device_unreachable", "Couldn't download the configuration from the device.", detail=str(exc)) from exc
 
     stored_filename = f"{uuid.uuid4().hex}.{fmt}"
     (settings.backups_dir / stored_filename).write_text(content, encoding="utf-8")

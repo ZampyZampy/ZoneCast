@@ -20,7 +20,7 @@ async function api(path, opts = {}) {
     if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         const detail = data.detail;
-        const message = typeof detail === 'string' ? detail : (detail && detail.message) || `HTTP ${res.status}`;
+        const message = formatApiError(detail, res.status);
         const err = new Error(message);
         err.detail = detail; // may be a structured object (e.g. {message, applied, failed})
         throw err;
@@ -117,6 +117,11 @@ async function loadVersion() {
 // Attention-grabbing alerts (failed schedules, low disk) shown once per
 // browser session — sessionStorage so they resurface on the next real
 // login rather than nagging on every tab switch within the same visit.
+function alertText(a) {
+    const key = `alert.${a.code}`;
+    const text = t(key, a.params || {});
+    return text === key ? a.message : text;
+}
 async function loadStartupAlerts() {
     const container = document.getElementById('startup-alerts');
     if (!container) return;
@@ -128,7 +133,7 @@ async function loadStartupAlerts() {
         if (!items.length) return;
         container.innerHTML = items.map(a => `
             <div class="alert alert-${esc(a.severity)} alert-dismissible fade show" role="alert">
-                <i class="bi bi-exclamation-triangle-fill me-2"></i>${esc(a.message)}
+                <i class="bi bi-exclamation-triangle-fill me-2"></i>${esc(alertText(a))}
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>`).join('');
         try { sessionStorage.setItem('zc_alerts_shown', '1'); } catch (e) { /* non-fatal */ }
@@ -496,13 +501,13 @@ async function pushMulticast(id, btn) {
         const res = await api(`/api/speakers/${id}/push-config`, { method: 'POST' });
         toast(`✅ ${t('toast.configApplied')} (${res.applied.length})`);
     } catch (e) {
-        if (e.detail && e.detail.unsupported_brand) {
-            toast(e.detail.message, 'warning');
-        } else if (e.detail && e.detail.failed) {
-            const okCount = e.detail.applied.length;
-            const failCount = e.detail.failed.length;
+        if (e.detail && e.detail.code === 'speakers.push_unsupported') {
+            toast(e.message, 'warning');
+        } else if (e.detail && e.detail.code === 'speakers.push_failed') {
+            const okCount = e.detail.params.applied.length;
+            const failCount = e.detail.params.failed.length;
             toast(`⚠️ ${t('toast.configPartial')}: ${okCount}/${okCount + failCount}`, 'warning');
-            alert(`${t('toast.configPartial')}: ${okCount} ${t('toast.confirmed')}, ${failCount} ${t('toast.failed')}.\n\n${t('toast.failedList')}: ${e.detail.failed.join(', ')}\n\n${t('toast.retryHint')}`);
+            alert(`${t('toast.configPartial')}: ${okCount} ${t('toast.confirmed')}, ${failCount} ${t('toast.failed')}.\n\n${t('toast.failedList')}: ${e.detail.params.failed.join(', ')}\n\n${t('toast.retryHint')}`);
         } else {
             toast(`❌ ${e.message}`, 'danger');
         }
@@ -563,7 +568,7 @@ document.getElementById('upload-form').addEventListener('submit', async (e) => {
     status.textContent = t('toast.uploading');
     try {
         const res = await fetch('/api/media/upload', { method: 'POST', body: fd });
-        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail || t('toast.uploadError')); }
+        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.detail ? formatApiError(d.detail, res.status) : t('toast.uploadError')); }
         const uploaded = await res.json();
         status.textContent = '';
         fileInput.value = '';
@@ -935,7 +940,7 @@ if (exportBtn) {
             });
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
-                throw new Error(data.detail || `${t('toast.error')} ${res.status}`);
+                throw new Error(data.detail ? formatApiError(data.detail, res.status) : `${t('toast.error')} ${res.status}`);
             }
             const blob = await res.blob();
             const disposition = res.headers.get('Content-Disposition') || '';
@@ -977,7 +982,7 @@ if (importBtn) {
         try {
             const res = await fetch('/api/system/import', { method: 'POST', body: fd });
             const data = await res.json().catch(() => ({}));
-            if (!res.ok) throw new Error(data.detail || `${t('toast.error')} ${res.status}`);
+            if (!res.ok) throw new Error(data.detail ? formatApiError(data.detail, res.status) : `${t('toast.error')} ${res.status}`);
             infoBox.textContent = data.message;
             infoBox.classList.remove('d-none');
             toast(t('toast.importStarted'));

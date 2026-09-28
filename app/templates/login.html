@@ -92,7 +92,7 @@
             } else if (res.ok) {
                 window.location.href = '/';
             } else {
-                errBox.textContent = data.detail || t('login.error');
+                errBox.textContent = data.detail ? formatApiError(data.detail, res.status) : t('login.error');
                 errBox.classList.remove('d-none');
             }
         });
@@ -110,7 +110,7 @@
                 window.location.href = '/';
             } else {
                 const data = await res.json().catch(() => ({}));
-                errBox.textContent = data.detail || t('login.invalidCode');
+                errBox.textContent = data.detail ? formatApiError(data.detail, res.status) : t('login.invalidCode');
                 errBox.classList.remove('d-none');
             }
         });

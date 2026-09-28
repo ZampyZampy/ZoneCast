@@ -34,6 +34,12 @@ from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
+from ..errors import CodedError
+
+class BundleError(CodedError, ValueError):
+    pass
+
+
 MAGIC = b"ZCBUNDLE1"
 SALT_LEN = 16
 PBKDF2_ITERATIONS = 390_000
@@ -98,14 +104,14 @@ def extract_bundle(*, data: bytes, password: str, target_root: Path) -> list[str
     extracted member paths. Raises ValueError on wrong password or a
     file that isn't a ZoneCast bundle."""
     if not data.startswith(MAGIC):
-        raise ValueError("File non riconosciuto: non è un bundle ZoneCast valido")
+        raise BundleError("bundle.not_a_bundle", "This file isn't a ZoneCast export")
     rest = data[len(MAGIC):]
     salt, token = rest[:SALT_LEN], rest[SALT_LEN:]
     fernet = Fernet(_derive_key(password, salt))
     try:
         tar_bytes = fernet.decrypt(token)
     except InvalidToken as exc:
-        raise ValueError("Password errata o file corrotto") from exc
+        raise BundleError("bundle.wrong_password", "Wrong password, or corrupted file") from exc
 
     target_root.mkdir(parents=True, exist_ok=True)
     root = target_root.resolve()
@@ -116,9 +122,9 @@ def extract_bundle(*, data: bytes, password: str, target_root: Path) -> list[str
             # (symlinks, hardlinks, devices) can redirect later members
             # outside target_root, so it's refused outright.
             if not (member.isfile() or member.isdir()):
-                raise ValueError(f"Elemento non ammesso nel bundle: {member.name}")
+                raise BundleError("bundle.unsafe", f"Disallowed entry in the bundle: {member.name}", name=member.name)
             if not (root / member.name).resolve().is_relative_to(root):
-                raise ValueError(f"Percorso non sicuro nel bundle: {member.name}")
+                raise BundleError("bundle.unsafe", f"Unsafe path in the bundle: {member.name}", name=member.name)
         if hasattr(tarfile, "data_filter"):  # Python 3.11.4+/3.12+
             tar.extractall(path=target_root, filter="data")
         else:

@@ -1,7 +1,8 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..errors import AppError
 from ..deps import get_current_user
 from ..models import Speaker, TargetType, Zone, User
 from ..schemas import ZoneCreate, ZoneOut
@@ -21,11 +22,11 @@ def list_zones(db: Session = Depends(get_db), _: User = Depends(get_current_user
 @router.post("", response_model=ZoneOut)
 def create_zone(payload: ZoneCreate, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     if db.query(Zone).filter(Zone.name == payload.name).first():
-        raise HTTPException(status_code=400, detail="Zona già esistente")
+        raise AppError(400, "zones.name_taken", "A zone with this name already exists.")
     try:
         check_address_available(db, payload.multicast_address, payload.multicast_port)
     except MulticastAddressConflict as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise exc.http(400) from exc
     zone = Zone(**payload.model_dump())
     db.add(zone)
     db.commit()
@@ -43,7 +44,7 @@ def update_zone(
 ):
     zone = db.query(Zone).filter(Zone.id == zone_id).first()
     if not zone:
-        raise HTTPException(status_code=404, detail="Zona non trovata")
+        raise AppError(404, "zones.not_found", "Zone not found.")
     new_values = payload.model_dump()
     paging_changed = any(getattr(zone, f) != new_values[f] for f in _PAGING_RELEVANT_FIELDS)
     if paging_changed:
@@ -52,7 +53,7 @@ def update_zone(
                 db, new_values["multicast_address"], new_values["multicast_port"], exclude_zone_id=zone.id,
             )
         except MulticastAddressConflict as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise exc.http(400) from exc
     for k, v in new_values.items():
         setattr(zone, k, v)
     db.commit()
@@ -73,8 +74,8 @@ def delete_zone(
 ):
     zone = db.query(Zone).filter(Zone.id == zone_id).first()
     if not zone:
-        raise HTTPException(status_code=404, detail="Zona non trovata")
-    references.refuse_if_used(references.schedules_targeting(db, TargetType.zone, zone_id), f"La zona «{zone.name}»")
+        raise AppError(404, "zones.not_found", "Zone not found.")
+    references.refuse_if_used(references.schedules_targeting(db, TargetType.zone, zone_id), "zones.in_use", "This zone")
     member_ids = [s.id for s in db.query(Speaker).filter(Speaker.zone_id == zone_id).all()]
     db.query(Speaker).filter(Speaker.zone_id == zone_id).update({Speaker.zone_id: None})
     db.delete(zone)

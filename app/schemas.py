@@ -3,6 +3,7 @@ from datetime import datetime, date, time
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
+from .errors import invalid
 from .models import UserRole, SpeakerStatus, TargetType, PlaybackSource, PlaybackStatus
 
 
@@ -110,7 +111,9 @@ class SetNtpServersRequest(BaseModel):
 
 class AlertOut(BaseModel):
     severity: str
+    code: str
     message: str
+    params: dict = {}
 
 
 class HostResourcesOut(BaseModel):
@@ -175,7 +178,7 @@ class LogSettingsUpdate(BaseModel):
     @classmethod
     def check_retention(cls, v):
         if v is not None and v < 1:
-            raise ValueError("I giorni di conservazione devono essere almeno 1 (o vuoto per 'mai')")
+            raise invalid("validation.retention_min", "Keep the history for at least 1 day, or choose 'never'")
         return v
 
 
@@ -205,7 +208,7 @@ class ThemeUpdate(BaseModel):
     @classmethod
     def check_theme(cls, v):
         if not _HEX_COLOR_RE.match(v):
-            raise ValueError("Colore non valido: atteso formato esadecimale #rrggbb")
+            raise invalid("validation.color_invalid", "Invalid color: use the #rrggbb format")
         return v
 
 
@@ -250,7 +253,7 @@ class SpeakerBase(BaseModel):
     @classmethod
     def check_paging_volume(cls, v):
         if v is not None and v not in _PAGING_VOLUME_VALUES:
-            raise ValueError("Volume non valido: usare 'default' o un valore da 1 a 9")
+            raise invalid("validation.volume_invalid", "Invalid volume: use 'default' or a value from 1 to 9")
         return v
 
 
@@ -277,7 +280,7 @@ class SpeakerUpdate(BaseModel):
     @classmethod
     def check_paging_volume(cls, v):
         if v is not None and v not in _PAGING_VOLUME_VALUES:
-            raise ValueError("Volume non valido: usare 'default' o un valore da 1 a 9")
+            raise invalid("validation.volume_invalid", "Invalid volume: use 'default' or a value from 1 to 9")
         return v
 
 
@@ -375,9 +378,9 @@ def _normalize_days_of_week(value: str) -> str:
     days = {d.strip().lower() for d in value.split(",") if d.strip()}
     unknown = days.difference(_WEEKDAYS)
     if unknown:
-        raise ValueError(f"Giorni non validi: {', '.join(sorted(unknown))} (ammessi: {','.join(_WEEKDAYS)})")
+        raise invalid("validation.days_invalid", "Invalid days of the week: {days}", days=", ".join(sorted(unknown)))
     if not days:
-        raise ValueError("Selezionare almeno un giorno della settimana")
+        raise invalid("validation.days_empty", "Select at least one day of the week")
     return ",".join(d for d in _WEEKDAYS if d in days)
 
 
@@ -399,7 +402,7 @@ class ScheduleBase(BaseModel):
     @classmethod
     def _validate_holiday_country(cls, v: str) -> str:
         if not re.fullmatch(r"[A-Z]{2}", v):
-            raise ValueError("holiday_country deve essere un codice ISO 3166-1 alpha-2 (es. IT, US, FR)")
+            raise invalid("validation.country_invalid", "Invalid country code for the holiday calendar")
         return v
 
 
@@ -415,9 +418,9 @@ class ScheduleCreate(ScheduleBase):
     @model_validator(mode="after")
     def _validate_target_and_dates(self):
         if self.target_type != TargetType.all and self.target_id is None:
-            raise ValueError("target_id è obbligatorio quando la destinazione è una zona o un altoparlante")
+            raise invalid("schedules.target_required", "Choose the zone or speaker to play on")
         if self.start_date and self.end_date and self.start_date > self.end_date:
-            raise ValueError("La data di inizio è successiva alla data di fine")
+            raise invalid("schedules.dates_inverted", "The start date is after the end date")
         return self
 
 
@@ -439,7 +442,7 @@ class ScheduleUpdate(BaseModel):
     @classmethod
     def _validate_holiday_country(cls, v: Optional[str]) -> Optional[str]:
         if v is not None and not re.fullmatch(r"[A-Z]{2}", v):
-            raise ValueError("holiday_country deve essere un codice ISO 3166-1 alpha-2 (es. IT, US, FR)")
+            raise invalid("validation.country_invalid", "Invalid country code for the holiday calendar")
         return v
 
     @field_validator("days_of_week")
@@ -454,7 +457,7 @@ class ScheduleUpdate(BaseModel):
     @classmethod
     def _reject_explicit_null(cls, v):
         if v is None:
-            raise ValueError("Il campo non può essere nullo")
+            raise invalid("validation.not_null", "A required field is empty")
         return v
 
 

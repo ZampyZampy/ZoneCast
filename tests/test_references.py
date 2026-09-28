@@ -23,7 +23,8 @@ def test_media_in_use_cannot_be_deleted(admin_client, media_id):
     sched_id = _schedule(admin_client, media_id, name="Morning bell")
     res = admin_client.delete(f"/api/media/{media_id}")
     assert res.status_code == 409
-    assert "Morning bell" in res.json()["detail"]
+    detail = res.json()["detail"]
+    assert detail["code"] == "media.in_use" and "Morning bell" in detail["params"]["names"]
     admin_client.delete(f"/api/schedules/{sched_id}")
 
 
@@ -35,7 +36,8 @@ def test_zone_in_use_cannot_be_deleted(admin_client, media_id):
         db.close()
     sched_id = _schedule(admin_client, media_id, name="Dock bell", target_type="zone", target_id=zone_id)
     res = admin_client.delete(f"/api/zones/{zone_id}")
-    assert res.status_code == 409 and "Dock bell" in res.json()["detail"]
+    assert res.status_code == 409
+    assert res.json()["detail"]["code"] == "zones.in_use" and "Dock bell" in res.json()["detail"]["params"]["names"]
     admin_client.delete(f"/api/schedules/{sched_id}")
     assert admin_client.delete(f"/api/zones/{zone_id}").status_code == 200
 

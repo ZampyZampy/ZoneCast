@@ -9,10 +9,11 @@ two entries pointing at the same group.
 from sqlalchemy.orm import Session
 
 from ..config import settings
+from ..errors import CodedError
 from ..models import Speaker, Zone
 
 
-class MulticastAddressConflict(ValueError):
+class MulticastAddressConflict(CodedError):
     pass
 
 
@@ -36,7 +37,8 @@ def check_address_available(
 
     if key == _key(settings.global_all_call_address, settings.global_all_call_port):
         raise MulticastAddressConflict(
-            f"{address}:{port} è riservato al canale globale (all-call) — usa un altro indirizzo"
+            "multicast.reserved_all_call", f"{address}:{port} is reserved for the all-call channel",
+            address=f"{address}:{port}",
         )
 
     speakers_q = db.query(Speaker)
@@ -45,7 +47,8 @@ def check_address_available(
     for speaker in speakers_q.all():
         if _key(speaker.own_multicast_address, speaker.own_multicast_port) == key:
             raise MulticastAddressConflict(
-                f"{address}:{port} è già usato dall'altoparlante '{speaker.name}'"
+                "multicast.used_by_speaker", f"{address}:{port} is already used by speaker '{speaker.name}'",
+                address=f"{address}:{port}", name=speaker.name,
             )
 
     zones_q = db.query(Zone)
@@ -54,5 +57,6 @@ def check_address_available(
     for zone in zones_q.all():
         if _key(zone.multicast_address, zone.multicast_port) == key:
             raise MulticastAddressConflict(
-                f"{address}:{port} è già usato dalla zona '{zone.name}'"
+                "multicast.used_by_zone", f"{address}:{port} is already used by zone '{zone.name}'",
+                address=f"{address}:{port}", name=zone.name,
             )

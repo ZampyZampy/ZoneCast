@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..errors import AppError
 from ..deps import get_current_user
 from ..models import User, PlaybackLog
 from ..schemas import PlayRequest, PlaybackLogOut
@@ -21,7 +22,7 @@ async def play_now(payload: PlayRequest, db: Session = Depends(get_db), user: Us
             triggered_by_id=user.id,
         )
     except player.TargetResolutionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise exc.http(400) from exc
     return log
 
 
@@ -29,7 +30,7 @@ async def play_now(payload: PlayRequest, db: Session = Depends(get_db), user: Us
 def stop_playback(log_id: int, _: User = Depends(get_current_user)):
     stopped = player.stop_playback(log_id)
     if not stopped:
-        raise HTTPException(status_code=404, detail="Nessuna riproduzione attiva con questo id")
+        raise AppError(404, "playback.not_active", "This playback is no longer running.")
     return {"ok": True}
 
 

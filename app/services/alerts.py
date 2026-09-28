@@ -4,7 +4,7 @@ load (Sistema-adjacent, but relevant to every admin) — currently:
 recent failed scheduled playbacks, and disk space running low.
 Read-only and cheap enough to compute on every login.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
@@ -20,7 +20,9 @@ DISK_DANGER_PERCENT = 90.0
 @dataclass
 class Alert:
     severity: str  # "warning" | "danger"
-    message: str
+    code: str      # translated by the dashboard as t('alert.' + code, params)
+    message: str   # English fallback
+    params: dict = field(default_factory=dict)
 
 
 def get_alerts(db: Session) -> list[Alert]:
@@ -39,7 +41,9 @@ def get_alerts(db: Session) -> list[Alert]:
     if failed_count:
         alerts.append(Alert(
             severity="danger",
+            code="failed_playbacks",
             message=f"{failed_count} schedule playback(s) failed in the last 24 hours — check the Log tab.",
+            params={"count": failed_count},
         ))
 
     try:
@@ -48,8 +52,12 @@ def get_alerts(db: Session) -> list[Alert]:
         disk_percent = None
     if disk_percent is not None:
         if disk_percent >= DISK_DANGER_PERCENT:
-            alerts.append(Alert(severity="danger", message=f"Disk space is critically low ({disk_percent:.0f}% used)."))
+            alerts.append(Alert(severity="danger", code="disk_critical",
+                                message=f"Disk space is critically low ({disk_percent:.0f}% used).",
+                                params={"percent": f"{disk_percent:.0f}"}))
         elif disk_percent >= DISK_WARNING_PERCENT:
-            alerts.append(Alert(severity="warning", message=f"Disk space is running low ({disk_percent:.0f}% used)."))
+            alerts.append(Alert(severity="warning", code="disk_low",
+                                message=f"Disk space is running low ({disk_percent:.0f}% used).",
+                                params={"percent": f"{disk_percent:.0f}"}))
 
     return alerts

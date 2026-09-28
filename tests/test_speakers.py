@@ -32,7 +32,7 @@ def test_duplicate_ip_rejected(admin_client):
 
     res = admin_client.post("/api/speakers", json=_speaker_payload(name="Other", ip_address="10.0.0.55", own_multicast_address="239.5.5.3"))
     assert res.status_code == 400
-    assert "IP" in res.json()["detail"]
+    assert res.json()["detail"]["code"] == "speakers.ip_taken"
 
 
 def test_multicast_address_conflict_rejected(admin_client):

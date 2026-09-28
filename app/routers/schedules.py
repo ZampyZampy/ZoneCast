@@ -1,9 +1,10 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..errors import AppError
 from ..deps import get_current_user
 from ..models import Schedule, TargetType, User
 from ..schemas import ScheduleCreate, ScheduleUpdate, ScheduleOut
@@ -49,7 +50,7 @@ def _save_with_job(db: Session, sched: Schedule) -> None:
         db.rollback()
         _restore_job(db, schedule_id)
         if isinstance(exc, ValueError):
-            raise HTTPException(status_code=422, detail=f"Schedulazione non valida: {exc}") from exc
+            raise AppError(422, "schedules.invalid", "The scheduler can't accept this schedule.", detail=str(exc)) from exc
         raise
 
 
@@ -67,18 +68,18 @@ def create_schedule(payload: ScheduleCreate, db: Session = Depends(get_db), user
 def update_schedule(schedule_id: int, payload: ScheduleUpdate, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     sched = db.query(Schedule).filter(Schedule.id == schedule_id).first()
     if not sched:
-        raise HTTPException(status_code=404, detail="Schedulazione non trovata")
+        raise AppError(404, "schedules.not_found", "Schedule not found.")
     for k, v in payload.model_dump(exclude_unset=True).items():
         setattr(sched, k, v)
     if sched.target_type != TargetType.all and sched.target_id is None:
         db.rollback()
-        raise HTTPException(status_code=422, detail="target_id è obbligatorio quando la destinazione è una zona o un altoparlante")
+        raise AppError(422, "schedules.target_required", "Choose the zone or speaker to play on.")
     if sched.start_date and sched.end_date and sched.start_date > sched.end_date:
         db.rollback()
-        raise HTTPException(status_code=422, detail="La data di inizio è successiva alla data di fine")
+        raise AppError(422, "schedules.dates_inverted", "The start date is after the end date.")
     try:
         references.check_schedule_references(db, sched)
-    except HTTPException:
+    except AppError:
         db.rollback()
         raise
     _save_with_job(db, sched)
@@ -90,7 +91,7 @@ def update_schedule(schedule_id: int, payload: ScheduleUpdate, db: Session = Dep
 def delete_schedule(schedule_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     sched = db.query(Schedule).filter(Schedule.id == schedule_id).first()
     if not sched:
-        raise HTTPException(status_code=404, detail="Schedulazione non trovata")
+        raise AppError(404, "schedules.not_found", "Schedule not found.")
     db.delete(sched)
     db.commit()
     scheduler_service.remove_job(schedule_id)

@@ -3,11 +3,12 @@ import io
 import json
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..errors import AppError
 from ..deps import require_admin
 from ..models import EventLog, User
 from ..schemas import EventLogOut, LogSettingsOut, LogSettingsUpdate
@@ -87,7 +88,7 @@ def export_logs(
             headers={"Content-Disposition": f'attachment; filename="zonecast_logs_{ts}.csv"'},
         )
 
-    raise HTTPException(status_code=400, detail="Formato non valido: usare 'csv' o 'json'")
+    raise AppError(400, "logs.invalid_format", "Invalid format: use CSV or JSON.")
 
 
 @router.get("/settings", response_model=LogSettingsOut)
