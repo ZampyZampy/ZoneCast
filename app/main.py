@@ -18,6 +18,7 @@ from .services import event_log
 from .services import scheduler as scheduler_service
 from .services import player
 from .services.app_settings import get_settings as get_app_settings, derive_theme_shades
+from .services.sun_position import coords_for_timezone
 from .routers import auth, zones, speakers, media, playback, schedules, system, logs, backups
 
 logging.basicConfig(level=logging.INFO)
@@ -63,6 +64,12 @@ async def lifespan(app: FastAPI):
     event_log.shutdown()
 
 
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+    "font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; "
+    "form-action 'self'"
+)
+
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 errors.install(app)
 app.add_middleware(SessionMiddleware, secret_key=session_secret(), max_age=settings.session_max_age_seconds)
@@ -79,6 +86,15 @@ async def security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
     response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    # No inline scripts or event handlers anywhere (see app/static/js), so
+    # scripts can be limited to our own files; styles still need inline
+    # for the theme colours and a few style="" attributes.
+    response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
+    if request.url.path.startswith("/static/"):
+        # Revalidate every time (a cheap 304 when unchanged): ES modules are
+        # imported by plain URL, so this is what makes a deploy take effect
+        # without users having to hard-refresh.
+        response.headers["Cache-Control"] = "no-cache"
     return response
 
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "app" / "static")), name="static")
@@ -95,16 +111,30 @@ app.include_router(logs.router)
 app.include_router(backups.router)
 
 
-@app.get("/", response_class=HTMLResponse)
-def index(request: Request, db=Depends(get_db)):
-    if not request.session.get("user_id"):
-        return RedirectResponse(url="/login")
-    return templates.TemplateResponse(request, "dashboard.html", {
+def _page_context(db) -> dict:
+    lat, lon = coords_for_timezone(scheduler_service.scheduler_timezone())
+    return {
         "app_name": settings.app_name,
-        "max_upload_mb": settings.max_upload_mb,
-        "max_duration_seconds": settings.max_duration_seconds,
         "theme": derive_theme_shades(get_app_settings(db).theme_color),
         "asset_version": ASSET_VERSION,
+        "sun_lat": lat,
+        "sun_lon": lon,
+    }
+
+
+@app.get("/", response_class=HTMLResponse)
+def index(request: Request, db=Depends(get_db)):
+    user_id = request.session.get("user_id")
+    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first() if user_id else None
+    if not user:
+        return RedirectResponse(url="/login")
+    # Admin-only panels aren't sent to operators at all: nothing to hide
+    # client-side, and no admin endpoint polled by a page that can't use it.
+    return templates.TemplateResponse(request, "dashboard.html", {
+        **_page_context(db),
+        "is_admin": user.role == UserRole.admin,
+        "max_upload_mb": settings.max_upload_mb,
+        "max_duration_seconds": settings.max_duration_seconds,
     })
 
 
@@ -112,11 +142,7 @@ def index(request: Request, db=Depends(get_db)):
 def login_page(request: Request, db=Depends(get_db)):
     if request.session.get("user_id"):
         return RedirectResponse(url="/")
-    return templates.TemplateResponse(request, "login.html", {
-        "app_name": settings.app_name,
-        "theme": derive_theme_shades(get_app_settings(db).theme_color),
-        "asset_version": ASSET_VERSION,
-    })
+    return templates.TemplateResponse(request, "login.html", _page_context(db))
 
 
 @app.get("/health")

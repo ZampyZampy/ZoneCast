@@ -260,6 +260,10 @@ th[data-sort] {
 th[data-sort]:hover {
     color: var(--pa-accent);
 }
+th[data-sort]:focus-visible {
+    outline: 2px solid var(--pa-accent);
+    outline-offset: -2px;
+}
 th[data-sort] .sort-indicator {
     font-size: .7em;
     opacity: .7;
@@ -402,7 +406,12 @@ th[data-sort] .sort-indicator {
     .table-responsive table { width: 100%; font-size: .8rem; }
     .table-responsive td, .table-responsive th { overflow-wrap: break-word; padding: .35rem .3rem; }
     .badge { font-size: .7em; }
-    .status-dot-label { display: none; }
+    /* Hidden visually only: the colour dot alone must not be the only
+       way a screen reader learns a speaker's status. */
+    .status-dot-label {
+        position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+        overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+    }
     /* Icon-only action buttons on mobile (text labels hidden via
        .btn-label) laid out as a compact wrapping row — this is what
        actually keeps the actions column narrow; stacked full-text
@@ -416,3 +425,9 @@ th[data-sort] .sort-indicator {
     }
     .table-actions .btn-label { display: none; }
 }
+
+/* Login page theme selector (was an inline style, now CSP-friendly). */
+.login-theme-select { max-width: 90px; }
+
+/* Danger toasts stay until dismissed (see lib/dom.js) and carry a close button. */
+#toast-container .alert-dismissible { padding-right: 2.5rem; }

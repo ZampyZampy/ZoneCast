@@ -1,0 +1,243 @@
+"""End-to-end coverage of the main dashboard flows after the move to ES
+modules: every dialog, the delegated table actions, 2FA, sorting, the
+mobile drawer and the admin tabs."""
+import uuid
+
+import pyotp
+
+from .conftest import ADMIN_PASSWORD, add_media, login, open_tab
+
+
+def _uid(prefix):
+    return f"{prefix}-{uuid.uuid4().hex[:6]}"
+
+
+def _row(page, body, text):
+    return page.locator(f"#{body} tr", has_text=text)
+
+
+def test_speaker_create_edit_delete(page, server):
+    zone = server.api.post("/api/zones", json={"name": _uid("spk-zone"), "multicast_address": "239.255.70.1"}).json()
+    login(page, server)
+    open_tab(page, "speakers")
+    name = _uid("speaker")
+    page.click("#new-speaker-btn")
+    page.fill("#speaker-name", name)
+    page.fill("#speaker-ip", "192.0.2.150")
+    page.select_option("#speaker-zone", label=zone["name"])
+    page.fill("#speaker-mcast-addr", "239.255.71.1")
+    page.select_option("#speaker-brand", "fanvil")
+    assert page.is_visible("#speaker-volume-wrap")  # Fanvil supports paging volume
+    page.click("#speaker-modal button[type=submit]")
+    row = _row(page, "speakers-body", name)
+    row.wait_for()
+    assert zone["name"] in row.inner_text()
+
+    row.locator("[data-action=edit]").click()
+    page.wait_for_selector("#speaker-modal.show")
+    assert page.input_value("#speaker-name") == name
+    page.fill("#speaker-location", "Hall")
+    page.select_option("#speaker-brand", "other")
+    page.fill("#speaker-brand-other", "Acme")
+    page.click("#speaker-modal button[type=submit]")
+    page.wait_for_selector(f"#speakers-body tr:has-text('{name}'):has-text('Acme')")
+
+    _row(page, "speakers-body", name).locator("[data-action=delete]").click()
+    _row(page, "speakers-body", name).wait_for(state="detached")
+    assert page.errors == []
+
+
+def test_schedule_create_edit_delete(page, server):
+    zone = server.api.post("/api/zones", json={"name": _uid("sch-zone"), "multicast_address": "239.255.72.1"}).json()
+    media_name = _uid("bell") + ".wav"
+    add_media(server, name=media_name)
+    login(page, server)
+    open_tab(page, "schedules")
+    name = _uid("schedule")
+    page.click("#new-schedule-btn")
+    page.fill("#schedule-name", name)
+    page.select_option("#schedule-media", label=media_name)
+    page.select_option("#schedule-target-type", "zone")
+    page.select_option("#schedule-target-id", label=zone["name"])
+    page.fill("#schedule-time", "07:15")
+    page.click("label[for=day-sat]")
+    page.select_option("#schedule-holiday-mode", "exclude")
+    page.select_option("#schedule-holiday-country", "US")
+    page.click("#schedule-modal button[type=submit]")
+    row = _row(page, "schedules-body", name)
+    row.wait_for()
+    text = row.inner_text()
+    assert "07:15" in text and zone["name"] in text and "(US)" in text and "Sat" in text
+
+    row.locator("[data-action=edit]").click()
+    page.wait_for_selector("#schedule-modal.show")
+    assert page.input_value("#schedule-time") == "07:15"
+    assert page.is_checked("#day-sat") and page.is_checked("#day-mon")
+    page.uncheck("#schedule-enabled")
+    page.click("#schedule-modal button[type=submit]")
+    page.wait_for_selector(f"#schedules-body tr:has-text('{name}') .visually-hidden:has-text('Paused')")
+
+    _row(page, "schedules-body", name).locator("[data-action=delete]").click()
+    _row(page, "schedules-body", name).wait_for(state="detached")
+    assert page.errors == []
+
+
+def test_deleting_media_in_use_explains_why(page, server):
+    media_name = _uid("used") + ".wav"
+    media_id = add_media(server, name=media_name)
+    sched = server.api.post("/api/schedules", json={
+        "name": _uid("uses-it"), "media_id": media_id, "target_type": "all",
+        "time_of_day": "06:00:00", "days_of_week": "mon",
+    }).json()
+    login(page, server)
+    open_tab(page, "media")
+    _row(page, "media-body", media_name).locator("[data-action=delete]").click()
+    toast = page.wait_for_selector("#toast-container .alert-danger")
+    assert sched["name"] in toast.inner_text()
+    assert _row(page, "media-body", media_name).count() == 1
+    server.api.delete(f"/api/schedules/{sched['id']}")
+
+
+def test_user_create_edit_delete(page, server):
+    login(page, server)
+    open_tab(page, "users")
+    username = _uid("user")
+    page.click("[data-bs-target='#user-modal']")
+    page.fill("#user-username", username)
+    page.fill("#user-fullname", "Test Person")
+    page.fill("#user-password", "a-long-enough-password")
+    page.click("#user-modal button[type=submit]")
+    row = _row(page, "users-body", username)
+    row.wait_for()
+    assert "Operator" in row.inner_text()
+    row.locator("[data-action=edit]").click()
+    page.wait_for_selector("#user-edit-modal.show")
+    page.select_option("#user-edit-role", "admin")
+    page.click("#user-edit-modal button[type=submit]")
+    page.wait_for_selector(f"#users-body tr:has-text('{username}'):has-text('Administrator')")
+    _row(page, "users-body", username).locator("[data-action=delete]").click()
+    _row(page, "users-body", username).wait_for(state="detached")
+    assert page.errors == []
+
+
+def test_two_factor_enable_then_disable_with_password_dialog(page, server):
+    username, password = _uid("tfa"), "tfa-user-password-123"
+    server.api.post("/api/auth/users", json={"username": username, "password": password, "role": "operator"}).raise_for_status()
+    login(page, server, username, password)
+    page.click("#security-open-btn")
+    page.wait_for_selector("#security-modal.show")
+    page.click("#tfa-enable-btn")
+    page.wait_for_selector("#tfa-setup-view:not(.d-none)")
+    assert page.locator("#tfa-qr-container svg").count() == 1
+    secret = page.input_value("#tfa-secret")
+    page.fill("#tfa-confirm-code", pyotp.TOTP(secret).now())
+    page.click("#tfa-confirm-btn")
+    page.wait_for_selector("#tfa-codes-view:not(.d-none)")
+    assert len(page.inner_text("#tfa-codes-list").split()) >= 5
+    page.click("#tfa-codes-done-btn")
+    page.wait_for_selector("#tfa-disable-btn:not(.d-none)")
+
+    page.click("#tfa-disable-btn")
+    page.wait_for_selector("#password-prompt-modal.show")
+    assert page.get_attribute("#password-prompt-input", "type") == "password"
+    page.fill("#password-prompt-input", password)
+    page.click("#password-prompt-form button[type=submit]")
+    page.wait_for_selector("#security-modal.show")
+    page.wait_for_selector("#tfa-enable-btn:not(.d-none)")
+    assert page.errors == []
+
+
+def test_password_change_and_wrong_current_password(page, server):
+    username, password = _uid("pw"), "first-password-123"
+    server.api.post("/api/auth/users", json={"username": username, "password": password, "role": "operator"}).raise_for_status()
+    login(page, server, username, password)
+    page.click("[data-bs-target='#password-modal']")
+    page.fill("#pw-current", "not-my-password")
+    page.fill("#pw-new", "second-password-456")
+    page.fill("#pw-confirm", "second-password-456")
+    page.click("#password-modal button[type=submit]")
+    page.wait_for_selector("#pw-error:not(.d-none)")
+    assert "incorrect" in page.inner_text("#pw-error").lower()
+    page.fill("#pw-current", password)
+    page.click("#password-modal button[type=submit]")
+    page.wait_for_selector("#password-modal", state="hidden")
+    page.click("#logout-btn")
+    page.wait_for_url(f"{server.url}/login")
+    login(page, server, username, "second-password-456")
+
+
+def test_sorting_by_keyboard_survives_a_data_refresh(page, server):
+    tag = uuid.uuid4().hex[:6]
+    for prefix in ("zz", "aa", "mm"):
+        server.api.post("/api/zones", json={"name": f"{prefix}-sort-{tag}", "multicast_address": f"239.255.73.{uuid.uuid4().int % 250 + 1}"})
+
+    def ours():
+        names = page.locator("#zones-body tr td:first-child").all_inner_texts()
+        return [n.split("-")[0] for n in names if n.endswith(f"-sort-{tag}")]
+
+    login(page, server)
+    open_tab(page, "zones")
+    header = page.locator("#tab-zones th[data-sort=name]")
+    header.focus()
+    page.keyboard.press("Enter")
+    assert header.get_attribute("aria-sort") == "ascending"
+    assert ours() == ["aa", "mm", "zz"]
+    page.keyboard.press("Enter")
+    assert header.get_attribute("aria-sort") == "descending"
+    assert ours() == ["zz", "mm", "aa"]
+    # a save elsewhere refreshes the data: the order must stay descending
+    page.click("#new-zone-btn")
+    page.fill("#zone-name", f"bb-sort-{tag}")
+    page.fill("#zone-mcast-addr", "239.255.74.1")
+    page.click("#zone-modal button[type=submit]")
+    page.wait_for_selector(f"#zones-body tr:has-text('bb-sort-{tag}')")
+    assert ours() == ["zz", "mm", "bb", "aa"]
+
+
+def test_mobile_drawer_holds_language_and_account_controls(browser, server):
+    ctx = browser.new_context(viewport={"width": 390, "height": 844}, is_mobile=True, has_touch=True, locale="en-US")
+    ctx.add_init_script("try { localStorage.setItem('zc_lang', 'en') } catch (e) {}")
+    page = ctx.new_page()
+    errors = []
+    page.on("pageerror", lambda e: errors.append(str(e)))
+    try:
+        login(page, server)
+        assert page.locator("#sidebar-prefs-slot #language-select").count() == 1
+        toggle = page.locator("#sidebar-toggle-btn")
+        toggle.click()
+        assert toggle.get_attribute("aria-expanded") == "true"
+        page.click('#main-tabs .nav-item[data-tab="zones"]')
+        assert toggle.get_attribute("aria-expanded") == "false"
+        assert page.is_visible("#tab-zones")
+        assert errors == []
+    finally:
+        ctx.close()
+
+
+def test_logs_tab_search_and_retention(page, server):
+    server.api.post("/api/auth/login", json={"username": "log-probe-user", "password": "x"})
+    login(page, server)
+    open_tab(page, "logs")
+    page.fill("#logs-search", "log-probe-user")
+    page.wait_for_timeout(900)
+    assert "log-probe-user" in page.inner_text("#logs-body")
+    assert "q=log-probe-user" in page.get_attribute("#logs-export-csv", "href")
+    page.uncheck("#logs-retention-never")
+    page.fill("#logs-retention-days", "")
+    page.click("#logs-retention-save")
+    assert "Never" in page.wait_for_selector("#toast-container .alert-danger").inner_text()
+    page.fill("#logs-retention-days", "30")
+    page.click("#logs-retention-save")
+    page.wait_for_selector("#toast-container .alert-success")
+    assert server.api.get("/api/logs/settings").json()["retention_days"] == 30
+    assert page.errors == []
+
+
+def test_every_view_redraws_in_every_language(page, server):
+    login(page, server)
+    for lang in ("it", "fr", "de", "es", "ja", "zh", "en"):
+        page.select_option("#language-select", lang)
+        for tab in ("play", "media", "speakers", "zones", "schedules", "users", "system", "logs", "backuparchive"):
+            open_tab(page, tab)
+        assert page.evaluate("document.documentElement.lang") == lang
+    assert page.errors == []
