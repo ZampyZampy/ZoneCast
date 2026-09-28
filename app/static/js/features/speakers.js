@@ -1,6 +1,6 @@
 // Speakers: table, ping, multicast preview/push, create/edit/delete.
 import { api } from '../lib/api.js';
-import { $, actionButton, esc, fillSelect, modal, onAction, run, toast, withBusy } from '../lib/dom.js';
+import { $, actionButton, esc, modal, onAction, run, toast, withBusy } from '../lib/dom.js';
 import { makeSortable, sortedRows } from '../lib/sort.js';
 import { isAdmin, onDataChange, refresh, state, zoneName } from '../state.js';
 import { openBackups } from './backups.js';
@@ -16,14 +16,21 @@ const SORT = {
     status: s => s.status,
     name: s => s.name,
     ip: s => s.ip_address.split('.').map(n => n.padStart(3, '0')).join('.'),
-    zone: s => zoneName(s.zone_id) || '',
+    zone: s => zoneNames(s),
     mcast: s => s.own_multicast_address,
     model: s => [s.brand, s.model].filter(Boolean).join(' '),
 };
 
-function statusCell(status) {
-    const label = esc(t(`status.${status}`));
-    return `<span class="status-dot status-${esc(status)}" title="${label}" aria-hidden="true"></span><span class="status-dot-label">${label}</span>`;
+const zoneNames = (s) => s.zone_ids.map(zoneName).filter(Boolean).join(', ');
+
+function statusCell(s) {
+    const label = esc(t(`status.${s.status}`));
+    // The device didn't take its latest paging list (offline, wrong
+    // credentials...): its zones in the dashboard aren't what it plays.
+    const sync = s.paging_sync_ok === false
+        ? ` <span class="badge text-bg-warning" title="${esc(t('speakers.outOfSyncTitle', { error: s.paging_sync_error || '' }))}">${esc(t('speakers.outOfSync'))}</span>`
+        : '';
+    return `<span class="status-dot status-${esc(s.status)}" title="${label}" aria-hidden="true"></span><span class="status-dot-label">${label}</span>${sync}`;
 }
 
 function actions(s) {
@@ -47,18 +54,14 @@ function actions(s) {
 export function render() {
     $('speakers-body').innerHTML = sortedRows('speakers', state.speakers, SORT).map(s => `
         <tr>
-            <td>${statusCell(s.status)}</td>
+            <td>${statusCell(s)}</td>
             <td>${esc(s.name)}</td>
             <td>${esc(s.ip_address)}</td>
-            <td class="col-secondary">${esc(zoneName(s.zone_id) || '—')}</td>
+            <td class="col-secondary">${esc(zoneNames(s) || '—')}</td>
             <td class="col-secondary"><code>${esc(s.own_multicast_address)}:${esc(s.own_multicast_port)}</code></td>
             <td class="col-secondary">${esc([s.brand, s.model].filter(Boolean).join(' ') || '—')}</td>
             <td class="table-actions text-end">${actions(s)}</td>
         </tr>`).join('') || `<tr><td colspan="7" class="text-muted">${esc(t('empty.speakers'))}</td></tr>`;
-}
-
-export function renderZoneSelect() {
-    fillSelect($('speaker-zone'), state.zones, { label: z => z.name, empty: t('common.none') });
 }
 
 function effectiveBrand() {
@@ -74,6 +77,7 @@ function resetForm() {
     $('speaker-form').reset();
     $('speaker-id').value = '';
     $('speaker-mcast-port').value = 5004;
+    $('speaker-zones').textContent = '—';
     toggleBrandFields();
 }
 
@@ -84,7 +88,7 @@ function edit(id) {
     $('speaker-id').value = s.id;
     $('speaker-name').value = s.name;
     $('speaker-ip').value = s.ip_address;
-    $('speaker-zone').value = s.zone_id || '';
+    $('speaker-zones').textContent = zoneNames(s) || t('common.none');
     $('speaker-mcast-addr').value = s.own_multicast_address;
     $('speaker-mcast-port').value = s.own_multicast_port;
     const brand = (s.brand || '').toLowerCase();
@@ -146,7 +150,6 @@ export function init() {
     makeSortable('speakers', SORT, render);
     onDataChange((changed) => {
         if (changed.has('speakers') || changed.has('zones')) render();
-        if (changed.has('zones')) renderZoneSelect();
     });
     $('speaker-brand').addEventListener('change', toggleBrandFields);
     $('speaker-brand-other').addEventListener('input', toggleBrandFields);
@@ -158,7 +161,6 @@ export function init() {
         const payload = {
             name: $('speaker-name').value,
             ip_address: $('speaker-ip').value,
-            zone_id: $('speaker-zone').value ? Number($('speaker-zone').value) : null,
             own_multicast_address: $('speaker-mcast-addr').value,
             own_multicast_port: Number($('speaker-mcast-port').value),
             brand: effectiveBrand(),

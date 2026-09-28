@@ -10,7 +10,7 @@ from datetime import timedelta
 from sqlalchemy.orm import Session
 
 from . import host_resources
-from ..models import PlaybackLog, PlaybackSource, PlaybackStatus
+from ..models import PlaybackLog, PlaybackSource, PlaybackStatus, Speaker
 from ..timeutil import utcnow
 
 FAILED_PLAYBACK_LOOKBACK = timedelta(hours=24)
@@ -45,6 +45,15 @@ def get_alerts(db: Session) -> list[Alert]:
             code="failed_playbacks",
             message=f"{failed_count} schedule playback(s) failed in the last 24 hours — check the Log tab.",
             params={"count": failed_count},
+        ))
+
+    out_of_sync = db.query(Speaker).filter(Speaker.paging_sync_ok.is_(False)).count()
+    if out_of_sync:
+        alerts.append(Alert(
+            severity="warning",
+            code="speakers_out_of_sync",
+            message=f"{out_of_sync} speaker(s) didn't accept their latest zone setup: check the Speakers tab.",
+            params={"count": out_of_sync},
         ))
 
     try:

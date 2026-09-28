@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..config import settings
 from ..database import get_db
@@ -16,8 +16,9 @@ from ..services.multicast_addressing import MulticastAddressConflict, check_addr
 router = APIRouter(prefix="/api/speakers", tags=["speakers"])
 
 # Fields that change what this speaker's multicast paging list should
-# contain — these trigger an automatic push to the device...
-_PAGING_RELEVANT_FIELDS = {"zone_id", "own_multicast_address", "own_multicast_port", "paging_volume"}
+# contain (its name labels its own slot) — these trigger an automatic
+# push to the device. Zone membership is edited from the zones router...
+_PAGING_RELEVANT_FIELDS = {"name", "own_multicast_address", "own_multicast_port", "paging_volume"}
 # ...and so do these: a device replaced at a new IP, corrected
 # credentials after a failed push, or a switch to a supported brand all
 # mean the device may not have the right list yet.
@@ -26,7 +27,14 @@ _DEVICE_ACCESS_FIELDS = {"ip_address", "http_port", "http_username", "http_passw
 
 @router.get("", response_model=list[SpeakerOut])
 def list_speakers(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    return db.query(Speaker).order_by(Speaker.name).all()
+    return db.query(Speaker).options(selectinload(Speaker.zones)).order_by(Speaker.name).all()
+
+
+def _refuse_zone_field(zone_id: int | None) -> None:
+    """A dashboard loaded before zones moved to the Zones tab still sends
+    zone_id: null is harmless, a chosen zone must not be silently lost."""
+    if zone_id is not None:
+        raise AppError(422, "speakers.zone_moved", "Zones are now managed from the Zones tab: reload the page.")
 
 
 @router.post("", response_model=SpeakerOut)
@@ -36,6 +44,7 @@ def create_speaker(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    _refuse_zone_field(payload.zone_id)
     if db.query(Speaker).filter(Speaker.ip_address == payload.ip_address).first():
         raise AppError(400, "speakers.ip_taken", "A speaker with this IP address already exists.")
     try:
@@ -46,7 +55,7 @@ def create_speaker(
     db.add(speaker)
     db.commit()
     db.refresh(speaker)
-    background_tasks.add_task(multicast_provisioning.push_to_speaker_id, speaker.id)
+    background_tasks.add_task(multicast_provisioning.request_push, speaker.id)
     background_tasks.add_task(_check_reachability_by_id, speaker.id)
     return speaker
 
@@ -54,7 +63,7 @@ def create_speaker(
 async def _check_reachability_by_id(speaker_id: int) -> None:
     """Background-task wrapper: opens its own DB session, since this
     runs after the request's own session has already been closed —
-    same pattern as multicast_provisioning.push_to_speaker_id."""
+    same pattern as multicast_provisioning._push_and_record."""
     from ..database import SessionLocal
 
     db = SessionLocal()
@@ -77,6 +86,7 @@ def update_speaker(
     speaker = db.query(Speaker).filter(Speaker.id == speaker_id).first()
     if not speaker:
         raise AppError(404, "speakers.not_found", "Speaker not found.")
+    _refuse_zone_field(payload.zone_id)
     changed_fields = payload.model_dump(exclude_unset=True)
     new_ip = changed_fields.get("ip_address")
     if new_ip is not None and db.query(Speaker.id).filter(Speaker.ip_address == new_ip, Speaker.id != speaker.id).first():
@@ -93,10 +103,16 @@ def update_speaker(
     really_changed = {k for k, v in changed_fields.items() if getattr(speaker, k) != v}
     for k, v in changed_fields.items():
         setattr(speaker, k, v)
+    limit = multicast_provisioning.max_zones(speaker)
+    if "brand" in really_changed and limit is not None and len(speaker.zones) > limit:
+        db.rollback()
+        raise AppError(422, "zones.speaker_zone_limit",
+                       f"{speaker.name} is in more zones than its device can listen to ({limit}).",
+                       name=speaker.name, max=limit)
     db.commit()
     db.refresh(speaker)
     if (_PAGING_RELEVANT_FIELDS | _DEVICE_ACCESS_FIELDS) & really_changed:
-        background_tasks.add_task(multicast_provisioning.push_to_speaker_id, speaker.id)
+        background_tasks.add_task(multicast_provisioning.request_push, speaker.id)
     return speaker
 
 
@@ -111,6 +127,7 @@ def delete_speaker(speaker_id: int, db: Session = Depends(get_db), _: User = Dep
     db.query(SpeakerConfigBackup).filter(SpeakerConfigBackup.speaker_id == speaker_id).update(
         {SpeakerConfigBackup.speaker_id: None}
     )
+    speaker.zones = []
     db.delete(speaker)
     db.commit()
     return {"ok": True}
@@ -154,6 +171,7 @@ async def push_config_now(speaker_id: int, db: Session = Depends(get_db), _: Use
     if not speaker:
         raise AppError(404, "speakers.not_found", "Speaker not found.")
     result = await multicast_provisioning.push_to_speaker(speaker)
+    multicast_provisioning.record_outcome(db, speaker.id, result)
     if result.unsupported_brand:
         raise AppError(400, "speakers.push_unsupported",
                        f"Automatic setup isn't supported for brand \"{speaker.brand or '-'}\": configure the multicast groups on the device (see Preview).",

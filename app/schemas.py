@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, date, time
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .errors import invalid
 from .models import UserRole, SpeakerStatus, TargetType, PlaybackSource, PlaybackStatus
@@ -221,13 +221,16 @@ class ZoneBase(BaseModel):
 
 
 class ZoneCreate(ZoneBase):
-    pass
+    # The zone's complete member list. Omitted (None) = leave the members
+    # as they are; [] = remove them all.
+    speaker_ids: Optional[list[int]] = Field(None, max_length=1000)
 
 
 class ZoneOut(ZoneBase):
     model_config = ConfigDict(from_attributes=True)
     id: int
     created_at: datetime
+    speaker_ids: list[int] = []
 
 
 # ---------- Speakers ----------
@@ -245,7 +248,9 @@ class SpeakerBase(BaseModel):
     location: str = ""
     own_multicast_address: str
     own_multicast_port: int = 5004
-    zone_id: Optional[int] = None
+    # Zones are managed from the Zones tab now. Still accepted (as null)
+    # from dashboards loaded before the upgrade, never stored.
+    zone_id: Optional[int] = Field(None, exclude=True)
     notes: str = ""
     paging_volume: Optional[str] = None
 
@@ -272,7 +277,7 @@ class SpeakerUpdate(BaseModel):
     location: Optional[str] = None
     own_multicast_address: Optional[str] = None
     own_multicast_port: Optional[int] = None
-    zone_id: Optional[int] = None
+    zone_id: Optional[int] = Field(None, exclude=True)  # see SpeakerBase
     notes: Optional[str] = None
     paging_volume: Optional[str] = None
 
@@ -298,9 +303,13 @@ class SpeakerOut(BaseModel):
     last_seen: Optional[datetime]
     own_multicast_address: str
     own_multicast_port: int
-    zone_id: Optional[int]
+    zone_ids: list[int] = []
     notes: str
     paging_volume: Optional[str] = None
+    paging_sync_ok: Optional[bool] = None
+    paging_sync_error: Optional[str] = None
+    paging_synced_at: Optional[datetime] = None
+    max_zones: Optional[int] = None
     supports_auto_config: bool = False
     supports_config_backup: bool = False
     supports_paging_volume: bool = False

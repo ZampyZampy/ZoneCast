@@ -30,7 +30,6 @@ function onLanguageChange() {
     nav.refreshTitle();
     if (state.me) renderUserBadge();
     speakers.render();
-    speakers.renderZoneSelect();
     zones.render();
     media.render();
     schedules.render();

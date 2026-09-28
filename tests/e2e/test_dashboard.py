@@ -54,6 +54,9 @@ def test_free_text_is_never_executed(page, server):
     login(page, server)
     for tab in ADMIN_TABS:
         open_tab(page, tab)
+    open_tab(page, "zones")
+    page.click("#new-zone-btn")  # the member checklist lists every speaker name
+    page.wait_for_selector("#zone-modal.show")
     assert page.evaluate("window.__xss") is None
     assert page.locator('img[src="x"]').count() == 0
 

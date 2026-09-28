@@ -2,7 +2,7 @@ import enum
 
 from sqlalchemy import (
     Column, Integer, String, Boolean, DateTime, Date, Time, Float,
-    ForeignKey, Enum as SAEnum, Text
+    ForeignKey, Enum as SAEnum, Table, Text
 )
 from sqlalchemy.orm import relationship
 
@@ -69,6 +69,18 @@ class User(Base):
         return self.username == settings.default_admin_username
 
 
+# A speaker can listen to several zones' groups (one paging slot each —
+# see services/multicast_provisioning.py). SQLite doesn't enforce these
+# foreign keys here, so the routers delete membership rows themselves
+# when a zone or a speaker goes away.
+zone_members = Table(
+    "zone_members",
+    Base.metadata,
+    Column("zone_id", Integer, ForeignKey("zones.id", name="fk_zone_members_zone_id"), primary_key=True),
+    Column("speaker_id", Integer, ForeignKey("speakers.id", name="fk_zone_members_speaker_id"), primary_key=True, index=True),
+)
+
+
 class Zone(Base):
     __tablename__ = "zones"
 
@@ -79,7 +91,11 @@ class Zone(Base):
     multicast_port = Column(Integer, nullable=False, default=5004)
     created_at = Column(DateTime, default=utcnow)
 
-    speakers = relationship("Speaker", back_populates="zone")
+    speakers = relationship("Speaker", secondary=zone_members, back_populates="zones", order_by="Speaker.name")
+
+    @property
+    def speaker_ids(self) -> list[int]:
+        return [s.id for s in self.speakers]
 
 
 class Speaker(Base):
@@ -115,12 +131,23 @@ class Speaker(Base):
     # when supports_paging_volume is True for this speaker's driver.
     paging_volume = Column(String(10), nullable=True)
 
-    zone_id = Column(Integer, ForeignKey("zones.id"), nullable=True)
-    zone = relationship("Zone", back_populates="speakers")
+    # Ordered by id, not name: the paging slot a zone gets on the device
+    # must not move when a zone is renamed.
+    zones = relationship("Zone", secondary=zone_members, back_populates="speakers", order_by="Zone.id")
+
+    # Outcome of the last automatic push of the paging list to the device:
+    # None = never pushed or no driver for this brand (configured by hand).
+    paging_sync_ok = Column(Boolean, nullable=True)
+    paging_sync_error = Column(String(500), nullable=True)
+    paging_synced_at = Column(DateTime, nullable=True)
 
     notes = Column(Text, default="")
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    @property
+    def zone_ids(self) -> list[int]:
+        return [z.id for z in self.zones]
 
     @property
     def supports_auto_config(self) -> bool:
@@ -144,6 +171,11 @@ class Speaker(Base):
         from .services.drivers import get_driver
         driver = get_driver(self.brand)
         return bool(driver and driver.supports_config_backup)
+
+    @property
+    def max_zones(self) -> int | None:
+        from .services.multicast_provisioning import max_zones
+        return max_zones(self)
 
 
 class Media(Base):

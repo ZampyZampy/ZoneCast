@@ -58,8 +58,8 @@ def _no_device_network(monkeypatch):
     monkeypatch.setattr(rtp_multicast, "_make_socket", _no_rtp)
 
     monkeypatch.setattr(speaker_status, "check_and_update", _no_io)
-    monkeypatch.setattr(multicast_provisioning, "push_to_speaker_id", _no_io)
-    monkeypatch.setattr(multicast_provisioning, "push_to_zone_speakers", _no_io)
+    monkeypatch.setattr(multicast_provisioning, "request_push", _no_io)
+    monkeypatch.setattr(multicast_provisioning, "request_pushes", _no_io)
 
     local = {"testserver", "127.0.0.1", "localhost"}
     real_async_send, real_send = httpx.AsyncClient.send, httpx.Client.send

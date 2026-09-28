@@ -431,3 +431,8 @@ th[data-sort] .sort-indicator {
 
 /* Danger toasts stay until dismissed (see lib/dom.js) and carry a close button. */
 #toast-container .alert-dismissible { padding-right: 2.5rem; }
+
+/* Zone members checklist (zone modal) */
+.zone-members-filter { flex: 1 1 12rem; min-width: 10rem; width: auto; }
+.zone-members-list .list-group-item { cursor: pointer; }
+.zone-members-list .list-group-item.text-muted { cursor: not-allowed; }

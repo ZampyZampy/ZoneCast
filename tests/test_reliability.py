@@ -77,7 +77,7 @@ def test_editing_only_non_paging_fields_does_not_rewrite_the_device(admin_client
     async def fake_push(speaker_id):
         pushed.append(speaker_id)
 
-    monkeypatch.setattr(multicast_provisioning, "push_to_speaker_id", fake_push)
+    monkeypatch.setattr(multicast_provisioning, "request_push", fake_push)
     db = SessionLocal()
     try:
         sp = Speaker(name="diff-test", ip_address="192.0.2.90", own_multicast_address="239.255.41.1", own_multicast_port=5004)

@@ -72,6 +72,11 @@ class SpeakerDriver(ABC):  # noqa: B024 — every capability is optional; unsupp
     # that can receive a paging list can also set its playback volume
     # through the same mechanism.
     supports_paging_volume: bool = False
+    # How many multicast groups the device can listen to (None = not
+    # known / not pushed by us). One goes to the speaker's own group and
+    # one to the all-call group; the rest bounds how many zones it can
+    # belong to (see multicast_provisioning.max_zones).
+    max_paging_slots: int | None = None
 
     async def push_multicast_config(self, speaker: Speaker, entries: list[PagingEntry]) -> PushResult:
         """Write the given multicast paging list to the device. Only

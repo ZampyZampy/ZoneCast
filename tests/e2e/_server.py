@@ -16,17 +16,12 @@ async def _fake_check(db, speaker):
     return True
 
 
-async def _noop(*_args, **_kwargs):
-    return None
-
-
 async def _fake_push(speaker):
     return PushResult(success=True)
 
 
 speaker_status.check_and_update = _fake_check
-multicast_provisioning.push_to_speaker_id = _noop
-multicast_provisioning.push_to_zone_speakers = _noop
+# request_push runs for real (queue, sync status), only the device write is faked.
 multicast_provisioning.push_to_speaker = _fake_push
 
 if __name__ == "__main__":

@@ -12,13 +12,16 @@ match the 0001 baseline, so they're stamped there first and then
 upgraded like any other.
 """
 import logging
+import sqlite3
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, event, inspect
 from sqlalchemy.pool import NullPool
 
 from .config import BASE_DIR, settings
+from .timeutil import utcnow
 
 logger = logging.getLogger("zonecast.migrate")
 BASELINE_REVISION = "0001"
@@ -69,7 +72,57 @@ def _is_pre_alembic(connection, tables: set[str]) -> bool:
     return not connection.exec_driver_sql("SELECT version_num FROM alembic_version").fetchall()
 
 
+# Copies of the database taken right before a schema upgrade.
+KEEP_PRE_UPGRADE_SNAPSHOTS = 3
+
+
+def head_revision() -> str:
+    return ScriptDirectory.from_config(_config(None)).get_current_head()
+
+
+def is_known_revision(revision: str) -> bool:
+    try:
+        return ScriptDirectory.from_config(_config(None)).get_revision(revision) is not None
+    except Exception:  # alembic raises several types for an unknown id
+        return False
+
+
+def _stored_revision(db_path) -> str | None:
+    """The revision recorded in the database file, read without taking
+    any lock; None for an empty or pre-Alembic database."""
+    con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    try:
+        if not con.execute("SELECT 1 FROM sqlite_master WHERE name = 'alembic_version'").fetchone():
+            has_tables = con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table'").fetchone()
+            return "legacy" if has_tables else None
+        row = con.execute("SELECT version_num FROM alembic_version").fetchone()
+        return row[0] if row else "legacy"
+    finally:
+        con.close()
+
+
+def _snapshot_before_upgrade() -> None:
+    """A schema upgrade rewrites tables in place: keep a copy of the
+    database as it was, next to it, in case the new version has to be
+    rolled back (the newest KEEP_PRE_UPGRADE_SNAPSHOTS are kept)."""
+    db_path = settings.db_path
+    if not settings.database_url.startswith("sqlite") or not db_path.exists():
+        return
+    revision = _stored_revision(db_path)
+    if revision is None or revision == head_revision():
+        return
+    from .services.bundle import _snapshot_sqlite
+
+    target = db_path.with_name(f"{db_path.name}.pre-upgrade-{revision}-{utcnow():%Y%m%dT%H%M%SZ}")
+    target.write_bytes(_snapshot_sqlite(db_path))
+    logger.warning("Aggiornamento dello schema da %s: copia del database salvata in %s", revision, target)
+    old = sorted(db_path.parent.glob(f"{db_path.name}.pre-upgrade-*"), key=lambda p: p.stat().st_mtime)
+    for path in old[:-KEEP_PRE_UPGRADE_SNAPSHOTS]:
+        path.unlink(missing_ok=True)
+
+
 def run_migrations() -> None:
+    _snapshot_before_upgrade()
     engine = _migration_engine()
     try:
         with engine.begin() as connection:

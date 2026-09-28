@@ -20,7 +20,7 @@ from apscheduler.triggers.cron import CronTrigger
 from ..config import settings
 from ..database import SessionLocal
 from ..models import Schedule, PlaybackSource, Speaker
-from . import player, event_log, speaker_status
+from . import player, event_log, multicast_provisioning, speaker_status
 from .app_settings import get_settings
 
 logger = logging.getLogger("zonecast.scheduler")
@@ -225,6 +225,9 @@ async def _check_all_speakers_job():
     finally:
         db.close()
     limit = asyncio.Semaphore(SWEEP_CONCURRENCY)
+    # Devices that missed their last paging-list push (offline, rebooting)
+    # get it again as soon as they answer.
+    to_resync: list[int] = []
 
     async def check(speaker_id: int) -> None:
         async with limit:
@@ -235,8 +238,8 @@ async def _check_all_speakers_job():
                 # held across a 2 s probe, a handful of checks would empty
                 # the pool and stall every other DB user — bells included.
                 session.commit()
-                if speaker:
-                    await speaker_status.check_and_update(session, speaker)
+                if speaker and await speaker_status.check_and_update(session, speaker) and speaker.paging_sync_ok is False:
+                    to_resync.append(speaker_id)
             except Exception:
                 session.rollback()
                 logger.exception("Controllo raggiungibilità fallito per l'altoparlante %s", speaker_id)
@@ -244,6 +247,8 @@ async def _check_all_speakers_job():
                 session.close()
 
     await asyncio.gather(*(check(sid) for sid in speaker_ids))
+    if to_resync:
+        await multicast_provisioning.request_pushes(to_resync)
 
 
 def _prune_logs_job():

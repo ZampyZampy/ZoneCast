@@ -43,7 +43,7 @@ def test_failed_migration_leaves_no_half_applied_schema(tmp_path, monkeypatch):
     migrate.run_migrations()  # a clean retry succeeds
     con = sqlite3.connect(db_path)
     try:
-        assert con.execute("select version_num from alembic_version").fetchall() == [("0002",)]
+        assert con.execute("select version_num from alembic_version").fetchall() == [(migrate.head_revision(),)]
     finally:
         con.close()
 
@@ -60,18 +60,22 @@ def test_interrupted_stamp_is_recovered(tmp_path, monkeypatch):
     """Tables present plus an EMPTY alembic_version (a stamp that died)."""
     from app import migrate
 
+    from alembic import command
+
     db_path = tmp_path / "legacy.db"
     _point_settings_at(monkeypatch, db_path)
-    migrate.run_migrations()
+    engine = migrate._migration_engine()
+    with engine.begin() as connection:
+        command.upgrade(migrate._config(connection), migrate.BASELINE_REVISION)  # the pre-Alembic schema
+    engine.dispose()
     con = sqlite3.connect(db_path)
     con.execute("delete from alembic_version")
-    con.execute("alter table app_settings drop column scheduler_timezone")
     con.commit()
     con.close()
     migrate.run_migrations()
     con = sqlite3.connect(db_path)
     try:
-        assert con.execute("select version_num from alembic_version").fetchall() == [("0002",)]
+        assert con.execute("select version_num from alembic_version").fetchall() == [(migrate.head_revision(),)]
     finally:
         con.close()
 
@@ -172,7 +176,7 @@ def test_changing_the_ip_re_provisions_the_device(admin_client, monkeypatch):
     async def fake_push(speaker_id):
         pushed.append(speaker_id)
 
-    monkeypatch.setattr(multicast_provisioning, "push_to_speaker_id", fake_push)
+    monkeypatch.setattr(multicast_provisioning, "request_push", fake_push)
     db = SessionLocal()
     try:
         sp = Speaker(name="ip-change", ip_address="192.0.2.200", own_multicast_address="239.255.61.1")

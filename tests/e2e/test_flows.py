@@ -22,20 +22,32 @@ def test_speaker_create_edit_delete(page, server):
     open_tab(page, "speakers")
     name = _uid("speaker")
     page.click("#new-speaker-btn")
+    assert page.locator("#speaker-zone").count() == 0  # zones are assigned from the Zones tab
     page.fill("#speaker-name", name)
     page.fill("#speaker-ip", "192.0.2.150")
-    page.select_option("#speaker-zone", label=zone["name"])
     page.fill("#speaker-mcast-addr", "239.255.71.1")
     page.select_option("#speaker-brand", "fanvil")
     assert page.is_visible("#speaker-volume-wrap")  # Fanvil supports paging volume
     page.click("#speaker-modal button[type=submit]")
     row = _row(page, "speakers-body", name)
     row.wait_for()
-    assert zone["name"] in row.inner_text()
 
+    open_tab(page, "zones")
+    _row(page, "zones-body", zone["name"]).locator("[data-action=edit]").click()
+    page.wait_for_selector("#zone-modal.show")
+    page.fill("#zone-members-filter", name)
+    page.locator("#zone-members-list label", has_text=name).locator("input").check()
+    assert page.inner_text("#zone-members-count") == "1"
+    page.click("#zone-modal button[type=submit]")
+    page.wait_for_selector(f"#zones-body tr:has-text('{zone['name']}'):has-text('{name}')")
+    open_tab(page, "speakers")
+    assert zone["name"] in _row(page, "speakers-body", name).inner_text()
+
+    row = _row(page, "speakers-body", name)
     row.locator("[data-action=edit]").click()
     page.wait_for_selector("#speaker-modal.show")
     assert page.input_value("#speaker-name") == name
+    assert zone["name"] in page.inner_text("#speaker-zones")
     page.fill("#speaker-location", "Hall")
     page.select_option("#speaker-brand", "other")
     page.fill("#speaker-brand-other", "Acme")
@@ -240,4 +252,32 @@ def test_every_view_redraws_in_every_language(page, server):
         for tab in ("play", "media", "speakers", "zones", "schedules", "users", "system", "logs", "backuparchive"):
             open_tab(page, tab)
         assert page.evaluate("document.documentElement.lang") == lang
+    assert page.errors == []
+
+
+def test_zone_members_checklist_filters_and_keeps_the_selection(page, server):
+    tag = uuid.uuid4().hex[:6]
+    ids = []
+    for i in range(3):
+        res = server.api.post("/api/speakers", json={
+            "name": f"hall-{tag}-{i}" if i < 2 else f"dock-{tag}", "ip_address": f"198.18.90.{i + 1}",
+            "own_multicast_address": f"239.254.90.{i + 1}", "brand": "other", "location": "north" if i == 0 else ""})
+        ids.append(res.json()["id"])
+    login(page, server)
+    open_tab(page, "zones")
+    page.click("#new-zone-btn")
+    page.fill("#zone-name", f"members-{tag}")
+    page.fill("#zone-mcast-addr", "239.255.91.1")
+    page.fill("#zone-members-filter", f"hall-{tag}")
+    assert page.locator("#zone-members-list input[type=checkbox]").count() == 2
+    page.click("#zone-members-select-shown")
+    page.fill("#zone-members-filter", "north")  # location matches too
+    assert page.locator("#zone-members-list input[type=checkbox]").count() == 1
+    page.fill("#zone-members-filter", "")
+    page.check("#zone-members-selected-only")
+    assert page.locator("#zone-members-list input:checked").count() == 2
+    page.click("#zone-modal button[type=submit]")
+    page.wait_for_selector(f"#zones-body tr:has-text('members-{tag}')")
+    zone = next(z for z in server.api.get("/api/zones").json() if z["name"] == f"members-{tag}")
+    assert sorted(zone["speaker_ids"]) == sorted(ids[:2])
     assert page.errors == []

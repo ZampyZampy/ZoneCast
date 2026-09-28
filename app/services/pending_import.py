@@ -37,6 +37,27 @@ def stage(data: bytes, password: str) -> None:
     if STAGING_DIR.exists():
         shutil.rmtree(STAGING_DIR)
     bundle.extract_bundle(data=data, password=password, target_root=STAGING_DIR)
+    try:
+        _refuse_newer_schema(STAGING_DIR / "data" / "zonecast.db")
+    except Exception:
+        shutil.rmtree(STAGING_DIR, ignore_errors=True)
+        raise
+
+
+def _refuse_newer_schema(staged_db: Path) -> None:
+    """A bundle exported by a newer ZoneCast carries a schema revision
+    this version has never heard of: applied, it would fail every start
+    ("Can't locate revision") until restored by hand."""
+    from .. import migrate
+    from .bundle import BundleError
+
+    if not staged_db.exists():
+        return
+    revision = migrate._stored_revision(staged_db)
+    if revision not in (None, "legacy") and not migrate.is_known_revision(revision):
+        raise BundleError("bundle.newer_schema",
+                          "This export comes from a newer ZoneCast version: update this installation first.",
+                          revision=revision)
 
 
 def has_pending() -> bool:
@@ -50,6 +71,7 @@ def _sidecars(db_path: Path) -> list[Path]:
 
 def _backup_current() -> None:
     ts = utcnow().strftime("%Y%m%d_%H%M%S")
+    staged = {"media": (STAGING_DIR / "media").exists(), "backups": (STAGING_DIR / "backups").exists()}
     if settings.db_path.exists():
         # Through SQLite's backup API, not a file copy: the process that
         # staged the import was killed with os._exit, so recent commits
@@ -66,7 +88,9 @@ def _backup_current() -> None:
     if settings.secret_key_path.exists():
         shutil.copy2(settings.secret_key_path, settings.secret_key_path.with_name(f"secret.key.pre-import-{ts}"))
     for d, label in ((settings.media_dir, "media"), (settings.backups_dir, "backups")):
-        if d.exists() and any(d.iterdir()):
+        # A bundle without audio files (automatic backups can leave them
+        # out) must not take away the ones the restored schedules use.
+        if staged[label] and d.exists() and any(d.iterdir()):
             shutil.move(str(d), str(d.with_name(f"{label}.pre-import-{ts}")))
 
 

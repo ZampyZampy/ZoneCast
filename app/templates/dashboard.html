@@ -133,7 +133,7 @@
             </div>
             <div class="table-responsive">
                 <table class="table align-middle">
-                    <thead><tr><th data-sort="status" data-i18n="common.status">Status</th><th data-sort="name" data-i18n="common.name">Name</th><th data-sort="ip" data-i18n="speakers.ip">IP</th><th data-sort="zone" class="col-secondary" data-i18n="common.zone">Zone</th><th data-sort="mcast" class="col-secondary" data-i18n="speakers.mcastGroup">Multicast group</th><th data-sort="model" class="col-secondary" data-i18n="speakers.model">Model</th><th></th></tr></thead>
+                    <thead><tr><th data-sort="status" data-i18n="common.status">Status</th><th data-sort="name" data-i18n="common.name">Name</th><th data-sort="ip" data-i18n="speakers.ip">IP</th><th data-sort="zone" class="col-secondary" data-i18n="speakers.zones">Zones</th><th data-sort="mcast" class="col-secondary" data-i18n="speakers.mcastGroup">Multicast group</th><th data-sort="model" class="col-secondary" data-i18n="speakers.model">Model</th><th></th></tr></thead>
                     <tbody id="speakers-body"></tbody>
                 </table>
             </div>
@@ -149,7 +149,7 @@
             </div>
             <div class="table-responsive">
                 <table class="table align-middle">
-                    <thead><tr><th data-sort="name" data-i18n="common.name">Name</th><th data-sort="description" class="col-secondary" data-i18n="common.description">Description</th><th data-sort="mcast" class="col-secondary" data-i18n="speakers.mcastGroup">Multicast group</th><th data-sort="count" data-i18n="zones.speakerCount"># Speakers</th><th></th></tr></thead>
+                    <thead><tr><th data-sort="name" data-i18n="common.name">Name</th><th data-sort="description" class="col-secondary" data-i18n="common.description">Description</th><th data-sort="mcast" class="col-secondary" data-i18n="speakers.mcastGroup">Multicast group</th><th data-sort="count" data-i18n="zones.members">Members</th><th></th></tr></thead>
                     <tbody id="zones-body"></tbody>
                 </table>
             </div>
@@ -422,7 +422,11 @@
                     <input type="hidden" id="speaker-id">
                     <div class="mb-2"><label for="speaker-name" class="form-label" data-i18n="common.name">Name</label><input class="form-control" id="speaker-name" required></div>
                     <div class="mb-2"><label for="speaker-ip" class="form-label" data-i18n="speakers.ipAddress">IP address</label><input class="form-control" id="speaker-ip" required placeholder="192.168.187.52"></div>
-                    <div class="mb-2"><label for="speaker-zone" class="form-label" data-i18n="common.zone">Zone</label><select class="form-select" id="speaker-zone"><option value="" data-i18n="common.none">(none)</option></select></div>
+                    <div class="mb-2">
+                        <span class="form-label d-block mb-1" data-i18n="speakers.zones">Zones</span>
+                        <div id="speaker-zones" class="small"></div>
+                        <div class="form-text" data-i18n="speakers.zonesHint">Zones are assigned from the Zones tab.</div>
+                    </div>
                     <div class="row">
                         <div class="col mb-2"><label for="speaker-mcast-addr" class="form-label" data-i18n="speakers.dedicatedMcast">Dedicated multicast group</label><input class="form-control" id="speaker-mcast-addr" required placeholder="239.1.2.10"></div>
                         <div class="col-4 mb-2"><label for="speaker-mcast-port" class="form-label" data-i18n="common.port">Port</label><input type="number" class="form-control" id="speaker-mcast-port" value="5004" required></div>
@@ -475,7 +479,7 @@
 
 <!-- ZONE MODAL -->
 <div class="modal fade" id="zone-modal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-fullscreen-sm-down">
         <div class="modal-content">
             <form id="zone-form">
                 <div class="modal-header"><h5 class="modal-title" data-i18n="common.zone">Zone</h5><button type="button" class="btn-close" data-bs-dismiss="modal" data-i18n-attr="aria-label" data-i18n="common.close" aria-label="Close"></button></div>
@@ -487,6 +491,20 @@
                         <div class="col mb-2"><label for="zone-mcast-addr" class="form-label" data-i18n="speakers.mcastGroup">Multicast group</label><input class="form-control" id="zone-mcast-addr" required placeholder="239.1.2.20"></div>
                         <div class="col-4 mb-2"><label for="zone-mcast-port" class="form-label" data-i18n="common.port">Port</label><input type="number" class="form-control" id="zone-mcast-port" value="5004" required></div>
                     </div>
+                    <fieldset class="mt-3">
+                        <legend class="form-label fs-6 mb-2"><span data-i18n="zones.members">Members</span> <span class="badge text-bg-secondary" id="zone-members-count">0</span></legend>
+                        <div class="zone-members-toolbar d-flex flex-wrap align-items-center gap-2 mb-2">
+                            <label for="zone-members-filter" class="visually-hidden" data-i18n="zones.membersFilter">Filter speakers</label>
+                            <input type="search" class="form-control form-control-sm zone-members-filter" id="zone-members-filter" data-i18n-attr="placeholder" data-i18n="zones.membersFilterPlaceholder" placeholder="Name, IP or location">
+                            <div class="form-check form-switch m-0">
+                                <input class="form-check-input" type="checkbox" id="zone-members-selected-only">
+                                <label class="form-check-label small" for="zone-members-selected-only" data-i18n="zones.selectedOnly">Selected only</label>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="zone-members-select-shown" data-i18n="zones.selectShown">Select shown</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" id="zone-members-clear" data-i18n="zones.clearSelection">Clear</button>
+                        </div>
+                        <div id="zone-members-list" class="list-group zone-members-list"></div>
+                    </fieldset>
                 </div>
                 <div class="modal-footer"><button class="btn btn-primary" type="submit" data-i18n="common.save">Save</button></div>
             </form>

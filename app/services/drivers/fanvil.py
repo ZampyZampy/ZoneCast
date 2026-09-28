@@ -12,6 +12,7 @@ class FanvilDriver(SpeakerDriver):
     supports_multicast_push = True
     supports_config_backup = True
     supports_paging_volume = True
+    max_paging_slots = fanvil_http._MCAST_SLOTS
 
     async def push_multicast_config(self, speaker: Speaker, entries: list[PagingEntry]) -> PushResult:
         """Writes the paging list via the device's real MCAST Listening

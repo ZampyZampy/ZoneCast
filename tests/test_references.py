@@ -45,34 +45,28 @@ def test_zone_in_use_cannot_be_deleted(admin_client, media_id):
 def test_deleting_a_zone_reprovisions_its_speakers(admin_client, monkeypatch):
     pushed = []
 
-    async def fake_push(speaker_id):
-        pushed.append(speaker_id)
+    async def fake_pushes(speaker_ids):
+        pushed.extend(speaker_ids)
 
-    monkeypatch.setattr(multicast_provisioning, "push_to_speaker_id", fake_push)
+    monkeypatch.setattr(multicast_provisioning, "request_pushes", fake_pushes)
     db = SessionLocal()
     try:
-        zone_id = _zone(db, "ref-zone-members", "239.255.30.2")
-        speaker = Speaker(name="ref-speaker", ip_address="192.0.2.77", own_multicast_address="239.255.31.1", zone_id=zone_id)
+        speaker = Speaker(name="ref-speaker", ip_address="192.0.2.77", own_multicast_address="239.255.31.1")
         db.add(speaker)
         db.commit()
         speaker_id = speaker.id
     finally:
         db.close()
+    zone = admin_client.post("/api/zones", json={
+        "name": "ref-zone-members", "multicast_address": "239.255.30.2", "speaker_ids": [speaker_id]}).json()
+    pushed.clear()
     try:
-        assert admin_client.delete(f"/api/zones/{zone_id}").status_code == 200
+        assert admin_client.delete(f"/api/zones/{zone['id']}").status_code == 200
         assert pushed == [speaker_id]  # device told to drop the old group
-        db = SessionLocal()
-        try:
-            assert db.query(Speaker).filter(Speaker.id == speaker_id).first().zone_id is None
-        finally:
-            db.close()
+        speakers = {s["id"]: s for s in admin_client.get("/api/speakers").json()}
+        assert speakers[speaker_id]["zone_ids"] == []
     finally:
-        db = SessionLocal()
-        try:
-            db.query(Speaker).filter(Speaker.id == speaker_id).delete()
-            db.commit()
-        finally:
-            db.close()
+        admin_client.delete(f"/api/speakers/{speaker_id}")
 
 
 def test_schedule_must_reference_existing_media_and_target(admin_client, media_id):
