@@ -290,6 +290,7 @@ th[data-sort] .sort-indicator {
     gap: 1.5rem;
     align-items: start;
 }
+.settings-grid .settings-span { grid-column: 1 / -1; }
 
 .nav-section-divider {
     border-top: 1px solid rgba(255,255,255,.08);

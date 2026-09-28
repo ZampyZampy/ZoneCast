@@ -4,7 +4,7 @@ APP_VERSION and add a CHANGELOG entry whenever a user-visible change
 ships — this is the only place either needs updating.
 """
 
-APP_VERSION = "1.5.8"
+APP_VERSION = "1.6.0"
 
 # Newest first. Each entry: version, date (YYYY-MM-DD), list of
 # one-line change descriptions. English, matching the UI's default
@@ -12,6 +12,22 @@ APP_VERSION = "1.5.8"
 # through app/static/js/i18n.js, so non-English viewers see it in
 # English regardless of their selected language.
 CHANGELOG = [
+    {
+        "version": "1.6.0",
+        "date": "2026-09-28",
+        "changes": [
+            "A speaker can belong to several zones (up to 18 on a Fanvil). Zone members are now chosen from the Zones tab, with a searchable list of speakers; the speaker form shows its zones read-only",
+            "Each speaker shows whether its device accepted the latest zone setup (\"Not in sync\" badge and a login alert); a device that was offline gets it again as soon as it answers",
+            "Starting a live announcement on speakers that are already playing (another announcement or a schedule) now asks first: stop them and play, play alongside, or cancel",
+            "A bell that falls during a live announcement on some of the same speakers now waits for it to end (up to 60 s) instead of cutting in",
+            "Custom dates: lists of days (closures, exam days, events, yearly dates such as Dec 24 - Jan 6) that a schedule can skip or be limited to",
+            "A schedule that would play on the same speakers at the same time as another one is refused when saved, naming the schedule in the way; overlaps created later by zone members or custom dates are reported, flagged in the list and shown as a login alert",
+            "Automatic backup (System tab): the full configuration on a daily or weekly schedule, kept on the server and optionally copied to an FTPS/FTP server or an SMB share, with retention, a connection test, \"back up now\" and alerts when a backup fails",
+            "The database is copied next to itself before any schema upgrade, and a backup exported by a newer version is refused instead of breaking the next start",
+            "The dashboard no longer loads anything from the internet, runs under a strict Content Security Policy, and every API error is shown in the viewer's language",
+            "Deleting a zone, speaker or audio file used by a schedule is refused with the list of schedules to fix first",
+        ],
+    },
     {
         "version": "1.5.8",
         "date": "2026-09-28",

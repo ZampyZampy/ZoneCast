@@ -74,7 +74,17 @@ def set_timezone(tz: str) -> None:
     global _timezone
     _timezone = tz
     load_all_schedules()
+    _register_backup_job()
     logger.info("Fuso orario delle schedulazioni impostato a %s", tz)
+
+
+def _register_backup_job(startup: bool = False) -> None:
+    from . import auto_backup
+
+    try:
+        auto_backup.register_job(startup=startup)
+    except Exception:
+        logger.exception("Backup automatico: impossibile programmare il job")
 
 
 def wakeup() -> None:
@@ -310,6 +320,7 @@ def start():
     sched_engine = get_scheduler()
     if not sched_engine.running:
         load_all_schedules()
+        _register_backup_job(startup=True)
         sched_engine.add_job(_prune_logs_job, trigger="cron", hour=3, minute=30, id="log-retention-prune", replace_existing=True)
         sched_engine.add_job(
             _check_all_speakers_job, trigger="interval",

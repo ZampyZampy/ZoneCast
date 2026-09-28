@@ -367,6 +367,91 @@
             <div class="alert alert-info py-2 d-none" id="import-info"></div>
             <div class="alert alert-danger py-2 d-none" id="import-error"></div>
         </div>
+
+        <div class="card-section p-4 settings-span" id="autobackup-card">
+            <h5 class="mb-1" data-i18n="autobackup.title">Automatic backup</h5>
+            <p class="text-muted small" data-i18n="autobackup.intro">The full configuration, as in Export, on a schedule: kept on this server and, if you want, copied to an FTP server or a network share.</p>
+            <div id="ab-foreign" class="alert alert-warning py-2 d-none" data-i18n="autobackup.foreign">These settings came from another installation (an imported backup): automatic backups are paused until you save them here.</div>
+            <form id="autobackup-form">
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="ab-enabled">
+                    <label class="form-check-label" for="ab-enabled" data-i18n="autobackup.enabled">Make backups automatically</label>
+                </div>
+                <div class="row g-2">
+                    <div class="col-sm-4"><label for="ab-frequency" class="form-label" data-i18n="autobackup.frequency">How often</label>
+                        <select class="form-select" id="ab-frequency"><option value="daily" data-i18n="autobackup.daily">Every day</option><option value="weekly" data-i18n="autobackup.weekly">Every week</option></select></div>
+                    <div class="col-sm-4 d-none" id="ab-weekday-wrap"><label for="ab-weekday" class="form-label" data-i18n="autobackup.weekday">Day</label>
+                        <select class="form-select" id="ab-weekday">
+                            <option value="0" data-i18n="schedules.mon">Mon</option><option value="1" data-i18n="schedules.tue">Tue</option>
+                            <option value="2" data-i18n="schedules.wed">Wed</option><option value="3" data-i18n="schedules.thu">Thu</option>
+                            <option value="4" data-i18n="schedules.fri">Fri</option><option value="5" data-i18n="schedules.sat">Sat</option>
+                            <option value="6" data-i18n="schedules.sun">Sun</option>
+                        </select></div>
+                    <div class="col-sm-4"><label for="ab-time" class="form-label" data-i18n="schedules.time">Time</label><input type="time" class="form-control" id="ab-time" required></div>
+                </div>
+                <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="ab-media">
+                    <label class="form-check-label" for="ab-media" data-i18n="autobackup.includeMedia">Include the audio files</label>
+                </div>
+                <div class="row g-2 mt-1">
+                    <div class="col-sm-6"><label for="ab-keep-local" class="form-label" data-i18n="autobackup.keepLocal">Copies kept on this server</label><input type="number" min="0" max="10" class="form-control" id="ab-keep-local" required></div>
+                    <div class="col-sm-6 ab-remote-only"><label for="ab-keep-remote" class="form-label" data-i18n="autobackup.keepRemote">Copies kept at the destination</label><input type="number" min="1" max="100" class="form-control" id="ab-keep-remote" required></div>
+                </div>
+                <div class="mt-3">
+                    <label for="ab-bundle-password" class="form-label" data-i18n="autobackup.bundlePassword">Backup password</label>
+                    <input type="password" class="form-control" id="ab-bundle-password" autocomplete="new-password" minlength="12">
+                    <div class="form-text" id="ab-bundle-password-state"></div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="ab-bundle-confirm">
+                        <label class="form-check-label small" for="ab-bundle-confirm" data-i18n="autobackup.bundleConfirm">I have stored this password somewhere safe: without it no backup can be restored.</label>
+                    </div>
+                </div>
+                <div class="mt-3"><label for="ab-destination" class="form-label" data-i18n="autobackup.destination">Also copy to</label>
+                    <select class="form-select" id="ab-destination">
+                        <option value="local" data-i18n="autobackup.destLocal">Nowhere else (this server only)</option>
+                        <option value="ftps" data-i18n="autobackup.destFtps">FTP server with encryption (FTPS)</option>
+                        <option value="smb" data-i18n="autobackup.destSmb">Network share (SMB / Windows)</option>
+                        <option value="ftp" data-i18n="autobackup.destFtp">FTP server without encryption</option>
+                    </select></div>
+                <div id="ab-remote-fields" class="d-none">
+                    <div class="row g-2 mt-1">
+                        <div class="col-8"><label for="ab-host" class="form-label" data-i18n="autobackup.host">Server</label><input class="form-control" id="ab-host" placeholder="nas.local / 192.168.1.10" autocomplete="off"></div>
+                        <div class="col-4"><label for="ab-port" class="form-label" data-i18n="common.port">Port</label><input type="number" min="1" max="65535" class="form-control" id="ab-port"></div>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-sm-6 d-none" id="ab-share-wrap"><label for="ab-share" class="form-label" data-i18n="autobackup.share">Share</label><input class="form-control" id="ab-share" autocomplete="off"></div>
+                        <div class="col-sm-6"><label for="ab-remote-dir" class="form-label" data-i18n="autobackup.folder">Folder</label><input class="form-control" id="ab-remote-dir" placeholder="zonecast/backups" autocomplete="off"></div>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-sm-6"><label for="ab-username" class="form-label" data-i18n="autobackup.username">Username</label><input class="form-control" id="ab-username" autocomplete="off"></div>
+                        <div class="col-sm-6"><label for="ab-password" class="form-label" data-i18n="autobackup.password">Password</label><input type="password" class="form-control" id="ab-password" autocomplete="new-password"></div>
+                    </div>
+                    <div class="form-text" id="ab-password-state"></div>
+                    <div class="form-check mt-2 d-none" id="ab-smb-encrypt-wrap">
+                        <input class="form-check-input" type="checkbox" id="ab-smb-encrypt">
+                        <label class="form-check-label" for="ab-smb-encrypt" data-i18n="autobackup.smbEncrypt">Encrypt the transfer (SMB 3)</label>
+                    </div>
+                    <div class="mt-2 d-none" id="ab-ftps-wrap">
+                        <label for="ab-fingerprint" class="form-label small" data-i18n="autobackup.fingerprint">Trusted certificate fingerprint (SHA-256), only for a self-signed certificate</label>
+                        <input class="form-control form-control-sm font-monospace" id="ab-fingerprint" autocomplete="off">
+                    </div>
+                    <div class="form-check mt-2 d-none" id="ab-ftp-wrap">
+                        <input class="form-check-input" type="checkbox" id="ab-insecure">
+                        <label class="form-check-label small" for="ab-insecure" data-i18n="autobackup.insecureConfirm">I understand that plain FTP sends the password and the backup unencrypted over the network.</label>
+                    </div>
+                </div>
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    <button type="submit" class="btn btn-primary" data-i18n="common.save">Save</button>
+                    <button type="button" class="btn btn-outline-secondary" id="ab-test" data-i18n="autobackup.test">Test connection</button>
+                    <button type="button" class="btn btn-outline-primary" id="ab-run" data-i18n="autobackup.runNow">Back up now</button>
+                </div>
+            </form>
+            <div id="ab-test-result" class="alert py-2 mt-3 d-none" role="status"></div>
+            <h6 class="mt-4" data-i18n="autobackup.status">Status</h6>
+            <dl class="row small mb-2" id="ab-status"></dl>
+            <h6 class="mt-3" data-i18n="autobackup.files">Backups on this server</h6>
+            <div class="table-responsive"><table class="table table-sm align-middle mb-0"><tbody id="ab-files"></tbody></table></div>
+        </div>
     </div>
     </div>
 

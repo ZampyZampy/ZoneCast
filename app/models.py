@@ -323,6 +323,47 @@ class AppSettings(Base):
     scheduler_timezone = Column(String(64), nullable=True)
 
 
+class BackupPolicy(Base):
+    """Single row (id 1): the scheduled configuration backup — when, what,
+    where to — and how the last run went. See services/auto_backup.py."""
+    __tablename__ = "backup_policy"
+
+    id = Column(Integer, primary_key=True, default=1)
+    enabled = Column(Boolean, default=False, nullable=False)
+    frequency = Column(String(8), default="daily", nullable=False)  # daily | weekly
+    weekday = Column(Integer, default=0, nullable=False)  # 0 = Monday, for weekly
+    time_of_day = Column(Time, nullable=False)
+    include_media = Column(Boolean, default=True, nullable=False)
+    keep_local = Column(Integer, default=3, nullable=False)
+    keep_remote = Column(Integer, default=14, nullable=False)
+    # Encrypted with data/secret.key and decrypted strictly (see
+    # crypto.decrypt_strict), never sent back to the browser.
+    bundle_password_enc = Column(String(1024), nullable=True)
+    destination = Column(String(8), default="local", nullable=False)  # local | ftps | ftp | smb
+    host = Column(String(253), default="", nullable=False)
+    port = Column(Integer, nullable=True)
+    share = Column(String(80), default="", nullable=False)
+    remote_dir = Column(String(255), default="", nullable=False)
+    username = Column(String(128), default="", nullable=False)
+    password_enc = Column(String(1024), nullable=True)
+    smb_encrypt = Column(Boolean, default=True, nullable=False)
+    allow_insecure_ftp = Column(Boolean, default=False, nullable=False)
+    tls_fingerprint = Column(String(95), default="", nullable=False)  # pinned SHA-256, hex
+    # Which installation saved this policy: a copy arriving with an
+    # imported bundle from another machine stays paused until re-saved.
+    instance_id = Column(String(32), default="", nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+    last_run_at = Column(DateTime, nullable=True)
+    last_success_at = Column(DateTime, nullable=True)
+    last_status = Column(String(16), nullable=True)  # ok | failed | paused_foreign
+    last_stage = Column(String(16), nullable=True)
+    last_error_code = Column(String(64), nullable=True)
+    last_error = Column(String(500), nullable=True)
+    last_file = Column(String(128), nullable=True)
+    last_warning = Column(String(500), nullable=True)
+
+
 class SpeakerConfigBackup(Base):
     """A snapshot of a Fanvil speaker's own configuration export
     (fetched from the device, e.g. /default_user_config.txt), kept so

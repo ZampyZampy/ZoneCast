@@ -35,6 +35,9 @@ class Settings(BaseSettings):
 
     max_upload_mb: int = 50
     max_duration_seconds: int = 600
+    # Scheduled backups (Sistema > Backup automatico): refuse to build a
+    # bundle bigger than this (it's built in memory, in a child process).
+    backup_max_bundle_mb: int = 500
 
     # Listening port for uvicorn — read by the Dockerfile CMD and by
     # zonecast.service's ExecStart (both expand ${APP_PORT} from this

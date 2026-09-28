@@ -43,6 +43,23 @@ def encrypt_str(value: str) -> str:
     return _get_fernet().encrypt(value.encode("utf-8")).decode("ascii")
 
 
+class DecryptError(ValueError):
+    """The stored value can't be decrypted with this installation's key
+    (secret.key lost or replaced)."""
+
+
+def decrypt_strict(value: str) -> str:
+    """For secrets that must never silently turn into something else — a
+    backup encrypted with the ciphertext as its password can't be
+    restored by anyone."""
+    if value == "":
+        return ""
+    try:
+        return _get_fernet().decrypt(value.encode("ascii")).decode("utf-8")
+    except (InvalidToken, ValueError) as exc:
+        raise DecryptError("stored secret can't be decrypted") from exc
+
+
 def decrypt_str(value: str) -> str:
     if value == "":
         return ""

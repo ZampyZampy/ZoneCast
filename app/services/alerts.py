@@ -66,6 +66,10 @@ def get_alerts(db: Session) -> list[Alert]:
             params={"count": overlaps},
         ))
 
+    from . import auto_backup
+    for severity, code, message, params in auto_backup.alerts(db):
+        alerts.append(Alert(severity=severity, code=code, message=message, params=params))
+
     try:
         disk_percent = host_resources.get_snapshot(cpu_sample_seconds=0.0).disk_percent
     except host_resources.HostResourcesError:

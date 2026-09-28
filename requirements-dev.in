@@ -7,3 +7,6 @@ pytest-cov
 playwright
 ruff
 uv
+# A local FTP/FTPS server for the scheduled-backup tests.
+pyftpdlib
+pyopenssl

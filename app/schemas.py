@@ -556,3 +556,73 @@ class OverlapWarning(BaseModel):
 
 
 ZoneOut.model_rebuild()
+
+
+# ---------- Scheduled backups ----------
+class BackupPolicyIn(BaseModel):
+    enabled: bool = False
+    frequency: Literal["daily", "weekly"] = "daily"
+    weekday: int = Field(0, ge=0, le=6)  # 0 = Monday
+    time_of_day: time
+    include_media: bool = True
+    keep_local: int = Field(3, ge=0, le=10)
+    keep_remote: int = Field(14, ge=1, le=100)
+    # Write-only: None or "" keeps the stored one.
+    bundle_password: Optional[str] = Field(None, max_length=256)
+    bundle_password_confirmed: bool = False
+    destination: Literal["local", "ftps", "ftp", "smb"] = "local"
+    host: str = Field("", max_length=253)
+    port: Optional[int] = Field(None, ge=1, le=65535)
+    share: str = Field("", max_length=80)
+    remote_dir: str = Field("", max_length=255)
+    username: str = Field("", max_length=128)
+    password: Optional[str] = Field(None, max_length=256)
+    smb_encrypt: bool = True
+    allow_insecure_ftp: bool = False
+    tls_fingerprint: str = Field("", max_length=200)
+
+
+class BackupPolicyOut(BaseModel):
+    enabled: bool
+    frequency: str
+    weekday: int
+    time_of_day: time
+    include_media: bool
+    keep_local: int
+    keep_remote: int
+    has_bundle_password: bool
+    destination: str
+    host: str
+    port: Optional[int]
+    share: str
+    remote_dir: str
+    username: str
+    has_password: bool
+    smb_encrypt: bool
+    allow_insecure_ftp: bool
+    tls_fingerprint: str
+    foreign: bool  # saved on another installation (imported): paused until saved here
+    running: bool
+    next_run_at: Optional[datetime] = None
+    last_run_at: Optional[datetime] = None
+    last_success_at: Optional[datetime] = None
+    last_status: Optional[str] = None
+    last_stage: Optional[str] = None
+    last_error_code: Optional[str] = None
+    last_error: Optional[str] = None
+    last_file: Optional[str] = None
+    last_warning: Optional[str] = None
+
+
+class BackupTestOut(BaseModel):
+    ok: bool
+    code: Optional[str] = None
+    detail: str = ""
+    fingerprint: Optional[str] = None
+
+
+class BackupFileOut(BaseModel):
+    name: str
+    size: int
+    created_at: datetime
+    own: bool

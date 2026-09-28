@@ -19,7 +19,7 @@ from .services import scheduler as scheduler_service
 from .services import player
 from .services.app_settings import get_settings as get_app_settings, derive_theme_shades
 from .services.sun_position import coords_for_timezone
-from .routers import auth, backups, calendars, logs, media, playback, schedules, speakers, system, zones
+from .routers import auth, auto_backup, backups, calendars, logs, media, playback, schedules, speakers, system, zones
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("zonecast")
@@ -110,6 +110,7 @@ app.include_router(calendars.router)
 app.include_router(system.router)
 app.include_router(logs.router)
 app.include_router(backups.router)
+app.include_router(auto_backup.router)
 
 
 def _page_context(db) -> dict:

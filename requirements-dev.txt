@@ -449,6 +449,9 @@ cryptography==50.0.1 \
     # via
     #   -c requirements.txt
     #   -r requirements.in
+    #   pyopenssl
+    #   pyspnego
+    #   smbprotocol
 fastapi==0.141.1 \
     --hash=sha256:bfb91aa2d334c61cb35ba9a116fc123b3d3df31640b801cf57a7a78ec3f603b3 \
     --hash=sha256:e8822fc40db1e1858054d7a949a888695bc9bdce70139178e33bd2871a453ca1
@@ -761,6 +764,16 @@ pluggy==1.6.0 \
     # via
     #   pytest
     #   pytest-cov
+pyasynchat==1.0.5 ; python_full_version >= '3.12' \
+    --hash=sha256:35b7859515693e479e8d95ebe9f32cbf4d6312ab7599ced39fc24699e51de46f \
+    --hash=sha256:36665473ae730dac51e6d7dad70f8295962120c830ab692f0a31efba32687e24
+    # via pyftpdlib
+pyasyncore==1.0.5 ; python_full_version >= '3.12' \
+    --hash=sha256:269bbc5252671827387636822841a1fb721ec6e858b23a3e12cf92eb1f97da2a \
+    --hash=sha256:dd483d5103a6d59b66b86e0ca2334ad43dca732ff23a0ac5d63c88c52510542e
+    # via
+    #   pyasynchat
+    #   pyftpdlib
 pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy' \
     --hash=sha256:600f49d217304a5902ac3c37e1281c9fe94e4d0489de643a9504c5cdfdfc6b29 \
     --hash=sha256:b727414169a36b7d524c1c3e31839a521725078d7b2ff038656844266160a992
@@ -909,16 +922,29 @@ pyee==13.0.1 \
     --hash=sha256:0b931f7c14535667ed4c7e0d531716368715e860b988770fc7eb8578d1f67fc8 \
     --hash=sha256:af2f8fede4171ef667dfded53f96e2ed0d6e6bd7ee3bb46437f77e3b57689228
     # via playwright
+pyftpdlib==2.2.0 \
+    --hash=sha256:4ba0642078792df63dd3b2e9c8f838f2a3ecf428c7518d5921c0530d53512acf
+    # via -r requirements-dev.in
 pygments==2.21.0 \
     --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9 \
     --hash=sha256:610ca751c9bc2492b38eb9a38a7fbc93edbbb2d7182edaf34e66ae493dee5c8c
     # via pytest
+pyopenssl==26.4.0 \
+    --hash=sha256:28dfcce0162b9211413e26dfbfdf1d24317fbeba18fc93c12400a1856b2a0bc7 \
+    --hash=sha256:f0eb0cb2d581d3ad2b9c489468485e7f2ab6727d08401bcf9d824c3caddf3c1c
+    # via -r requirements-dev.in
 pyotp==2.10.0 \
     --hash=sha256:1df2f6a1bcc3bb0716172a5215ddc2f8c7c7fd26a13df9927d52e1746934836c \
     --hash=sha256:d01e9703443616b03c57c700b5cbffd56a1f929c1b0f8f03131bc78c1fca9d3f
     # via
     #   -c requirements.txt
     #   -r requirements.in
+pyspnego==0.12.2 \
+    --hash=sha256:04e7c9260ced15197b3f42b891ffa30fa98c37bb09372c5c2bf927bcdfe30b53 \
+    --hash=sha256:448a491a9bf0e5fb957567fe46e6809fa836aa40dfcccebcc740bb64acb1be1c
+    # via
+    #   -c requirements.txt
+    #   smbprotocol
 pytest==9.1.1 \
     --hash=sha256:1088fbde8f2b49d95a549a195707afa7a76a3ce9bcadc26b6d71f0ffda5fe313 \
     --hash=sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c
@@ -1058,6 +1084,12 @@ six==1.17.0 \
     # via
     #   -c requirements.txt
     #   python-dateutil
+smbprotocol==1.17.0 \
+    --hash=sha256:bcc27edfff7d727a7eb30424138766e1ee216ae2ffc1af03dab0448f29c4731c \
+    --hash=sha256:bd1abff5417f5af83ca516a64ab8e5acece3dbdcf58d4e5e23e47f5165a77349
+    # via
+    #   -c requirements.txt
+    #   -r requirements.in
 sqlalchemy==2.0.54 \
     --hash=sha256:03cbf8d9a67da618bd65500a5eb3ddac89caf4c61e99b2f03fa4a1952a0725a9 \
     --hash=sha256:0e7a76d5dce712ce50435d0f97181eb955ec27d138c004176f01282e063bac52 \
@@ -1121,6 +1153,39 @@ sqlalchemy==2.0.54 \
     #   -c requirements.txt
     #   -r requirements.in
     #   alembic
+sspilib==0.6.0 ; sys_platform == 'win32' \
+    --hash=sha256:03335e14f8563e350506b47a15887a99f08102a80cfb6bd715ad83ab1c2c89ae \
+    --hash=sha256:0482631c67a57d8710ecbba3bbe49a9fb60e153dfcfee6d1f9b8a8ff6e419548 \
+    --hash=sha256:05883cd90cb2c67f18fd2418ab0f959549fbe6a9a4fc8013679411af23226d6e \
+    --hash=sha256:071e4e2a617a39a33e31de2c1f313427533879acabe475fedea31f129f7970bb \
+    --hash=sha256:2758aac58b6ca0aa5b726bdc76cea7d020820ac9831f4082b5b6fceda2cb48d0 \
+    --hash=sha256:3b24b6c19657f7b8b74a92e6cadb3ae5e25602ee348a7142cebb5194a0eed01b \
+    --hash=sha256:5937dbe41c34cbbfabbafb84238a06aa8912210cae8a4b909fa20f965868cc89 \
+    --hash=sha256:68a34e702fd81de3d74ea8caf6bc6a1218af551b75d0573a3b0607124a54e5f2 \
+    --hash=sha256:6ad61668c4eea0fdeefd1f596c4fb7b3f45237b1a5989c12d4412729bded7231 \
+    --hash=sha256:70223bdfefde9656c48dd17bb58fd0fb7e879e5b08ab028267d585206f393886 \
+    --hash=sha256:73343ba40b04de0486ab92f60b729eb0768657f71e4c279555d3273f323c0ce4 \
+    --hash=sha256:737adc3b14c2079480bcd10139fbab0b2ad683a24a6046ef69d9c769f4672c0a \
+    --hash=sha256:76a289f415f9beb6a2f3f0cb37b655863616c303b2a06754e1bb84ad86348aab \
+    --hash=sha256:7ea194eeb68d8848fde7125a7ac67fbd4a9052442b7ce69ce6c0c8115227ec67 \
+    --hash=sha256:83f99ed351d3091434f182579d20a419fa7baf03ec154632b5f7f3fbc6aa0788 \
+    --hash=sha256:8957c47c6d4e145a9e111a4c2a2b357ea15cb69719ff99fc0088fbd612618226 \
+    --hash=sha256:8b4b911f59f03601c23357146814e784c9a7612f34f5b933bdb1c50591b173d0 \
+    --hash=sha256:9073afb8f30dc0e7f3a40b39fef0fc29e4bda6a3d4e77936f3c496cedc4beade \
+    --hash=sha256:97bb2e9d4d916d4d6f566888a81997bb3ab0e05ac41549fa0fbebabac66de0e8 \
+    --hash=sha256:aa97562ca3d27a0ba5c830c56bff0fb6d3c8257bd16589b63869a212de6c92bd \
+    --hash=sha256:b4d4e3402230f14cd93999f3953619163075bcaca3e13dcf2ab5942c269627f4 \
+    --hash=sha256:b65fa6f90e523daa6eb95c0aa707cd6c04705bdfab3e42c00723d23141bc74ad \
+    --hash=sha256:b79f8088f8e2826586e5eb14b68f03f443637df178e95c190765c8065fc57a37 \
+    --hash=sha256:b841fabe630101d9e2be6ba56407a2a539087ee85d6ca1477748c21135c9f636 \
+    --hash=sha256:be2b500e7b745569794e8cfa557510f6c18e5402ad8f1fa1abe7adf53b3f3964 \
+    --hash=sha256:bf125782912e4a9012822619eb41e2c9c0e32cb9148efb649e608804b4b4e313 \
+    --hash=sha256:cbc8cf653e71b32ab7cf11d1630866cf12133fb235422f3f9bccb60ba62290e4 \
+    --hash=sha256:d239d78f9619d4fc76a9d57eb929258de50024c56097e73737d46ad58be0acaa \
+    --hash=sha256:fe8c7c9f749ffd302336a7820889ad9189c237d1f6d24e1232d7e2c653433d5b
+    # via
+    #   -c requirements.txt
+    #   pyspnego
 starlette==1.7.0 \
     --hash=sha256:67f8e99895493dd2911a03f11314af6ceebeae4e704bb9f43dfc6a9db151c93e \
     --hash=sha256:c79f74ea63cff761804fbbfb182f1e0b440c2d07b164d24700c5a1bab5d6ff5d
@@ -1187,6 +1252,7 @@ typing-extensions==4.16.0 \
     #   pydantic
     #   pydantic-core
     #   pyee
+    #   pyopenssl
     #   sqlalchemy
     #   starlette
     #   typing-inspection

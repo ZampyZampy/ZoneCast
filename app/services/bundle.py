@@ -25,6 +25,7 @@ install, before the app's first start.
 """
 import base64
 import io
+import json
 import sqlite3
 import tarfile
 import tempfile
@@ -66,14 +67,23 @@ def _snapshot_sqlite(db_path: Path) -> bytes:
         return dest_path.read_bytes()
 
 
-def build_export(*, password: str, db_path: Path, secret_key_path: Path, media_dir: Path, backups_dir: Path) -> bytes:
+def build_export(*, password: str, db_path: Path, secret_key_path: Path, media_dir: Path, backups_dir: Path,
+                 include_media: bool = True, compresslevel: int = 9, manifest: dict | None = None) -> bytes:
+    """`include_media=False` leaves the audio files out (scheduled backups
+    can); `manifest` is stored as manifest.json, describing the bundle."""
     # Password is optional (an empty string still derives a valid key,
     # just a weak/guessable one) — the caller decides whether to warn
     # about that; this function doesn't force a minimum.
     tar_buf = io.BytesIO()
     # dereference: hard/symbolic links an operator may have put in media/
     # or backups/ are stored as plain files — extract_bundle refuses links.
-    with tarfile.open(fileobj=tar_buf, mode="w:gz", dereference=True) as tar:
+    with tarfile.open(fileobj=tar_buf, mode="w:gz", dereference=True, compresslevel=compresslevel) as tar:
+        if manifest is not None:
+            manifest_bytes = json.dumps(manifest, indent=1).encode("utf-8")
+            info = tarfile.TarInfo("manifest.json")
+            info.size = len(manifest_bytes)
+            tar.addfile(info, io.BytesIO(manifest_bytes))
+
         db_bytes = _snapshot_sqlite(db_path)
         info = tarfile.TarInfo("data/zonecast.db")
         info.size = len(db_bytes)
@@ -86,7 +96,7 @@ def build_export(*, password: str, db_path: Path, secret_key_path: Path, media_d
             tar.addfile(info, io.BytesIO(key_bytes))
 
         for src_dir, arc_prefix in ((media_dir, "media"), (backups_dir, "backups")):
-            if not src_dir.exists():
+            if not src_dir.exists() or (arc_prefix == "media" and not include_media):
                 continue
             for path in sorted(src_dir.rglob("*")):
                 if path.is_file():

@@ -7,6 +7,7 @@ import { $ } from './lib/dom.js';
 import { isAdmin, refresh, state } from './state.js';
 import * as account from './features/account.js';
 import * as alerts from './features/alerts.js';
+import * as autobackup from './features/autobackup.js';
 import * as backups from './features/backups.js';
 import * as calendars from './features/calendars.js';
 import * as logs from './features/logs.js';
@@ -41,6 +42,7 @@ function onLanguageChange() {
         logs.render();
         backups.rerender();
         system.renderTimeLabels();
+        autobackup.rerender();
     }
 }
 
@@ -76,6 +78,7 @@ async function boot() {
     if (isAdmin()) {
         users.init();
         system.init();
+        autobackup.init();
         logs.init();
         backups.init();
     }

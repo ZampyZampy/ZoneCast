@@ -388,3 +388,27 @@ def test_an_overlapping_schedule_is_refused_inside_the_dialog(page, server):
         for s in server.api.get("/api/schedules").json():
             if s["name"] == f"late-{tag}":
                 server.api.delete(f"/api/schedules/{s['id']}")
+
+
+def test_automatic_backup_local_run_from_the_system_tab(page, server):
+    login(page, server)
+    open_tab(page, "system")
+    page.wait_for_selector("#ab-bundle-password-state:not(:empty)")
+    page.check("#ab-enabled")
+    page.fill("#ab-time", "03:45")
+    page.fill("#ab-bundle-password", "e2e-backup-password-long")
+    page.check("#ab-bundle-confirm")
+    page.select_option("#ab-destination", "smb")
+    assert page.is_visible("#ab-share") and page.is_visible("#ab-smb-encrypt")
+    page.select_option("#ab-destination", "local")
+    assert not page.is_visible("#ab-host")
+    page.click("#autobackup-form button[type=submit]")
+    page.wait_for_selector("#toast-container .alert-success")
+    policy = server.api.get("/api/system/auto-backup").json()
+    assert policy["enabled"] and policy["has_bundle_password"] and policy["time_of_day"] == "03:45:00"
+    page.click("#ab-run")
+    page.wait_for_selector("#ab-files code", timeout=60_000)  # built in a child process
+    name = page.inner_text("#ab-files code")
+    assert name.startswith("zonecast-") and name.endswith(".zcbundle")
+    assert server.api.get(f"/api/system/auto-backup/files/{name}").content.startswith(b"ZCBUNDLE1")
+    assert page.errors == []

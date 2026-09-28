@@ -17,6 +17,8 @@ holidays==0.104
 httpx==0.28.1
 jinja2==3.1.6
 python-dotenv==1.2.3
+# Scheduled backups to a Windows/NAS share (SMB2/3, pure Python).
+smbprotocol==1.17.0
 # IANA timezone data for zoneinfo, also used to place "sunrise/sunset"
 # for the Automatic theme (services/sun_position.py).
 tzdata
