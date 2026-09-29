@@ -47,7 +47,14 @@ def get_alerts(db: Session) -> list[Alert]:
             params={"count": failed_count},
         ))
 
-    out_of_sync = db.query(Speaker).filter(Speaker.paging_sync_ok.is_(False)).count()
+    # A push queued moments ago is still "pending", not a problem yet.
+    recent = utcnow() - timedelta(minutes=10)
+    out_of_sync = (
+        db.query(Speaker)
+        .filter(Speaker.paging_sync_ok.is_(False))
+        .filter((Speaker.paging_sync_error != "pending") | (Speaker.updated_at < recent))
+        .count()
+    )
     if out_of_sync:
         alerts.append(Alert(
             severity="warning",

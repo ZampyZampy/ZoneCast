@@ -13,6 +13,7 @@ upgraded like any other.
 """
 import logging
 import sqlite3
+from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
@@ -90,7 +91,9 @@ def is_known_revision(revision: str) -> bool:
 def _stored_revision(db_path) -> str | None:
     """The revision recorded in the database file, read without taking
     any lock; None for an empty or pre-Alembic database."""
-    con = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    # as_uri() percent-encodes the path: a '%' or '#' in a folder name
+    # would otherwise change which file SQLite opens.
+    con = sqlite3.connect(Path(db_path).resolve().as_uri() + "?mode=ro", uri=True)
     try:
         if not con.execute("SELECT 1 FROM sqlite_master WHERE name = 'alembic_version'").fetchone():
             has_tables = con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table'").fetchone()
@@ -101,28 +104,43 @@ def _stored_revision(db_path) -> str | None:
         con.close()
 
 
-def _snapshot_before_upgrade() -> None:
+def _snapshot_before_upgrade() -> bool:
     """A schema upgrade rewrites tables in place: keep a copy of the
     database as it was, next to it, in case the new version has to be
-    rolled back (the newest KEEP_PRE_UPGRADE_SNAPSHOTS are kept)."""
+    rolled back. Returns whether a copy was made."""
     db_path = settings.db_path
     if not settings.database_url.startswith("sqlite") or not db_path.exists():
-        return
+        return False
     revision = _stored_revision(db_path)
     if revision is None or revision == head_revision():
-        return
+        return False
+    if revision != "legacy" and not is_known_revision(revision):
+        # Written by a newer ZoneCast (this code was rolled back): no
+        # upgrade is possible, and copying it at every restart of the
+        # failing service would rotate the real rollback copy away.
+        raise RuntimeError(
+            f"Il database è alla revisione {revision}, più recente di questa versione di ZoneCast "
+            f"(ultima revisione nota: {head_revision()}): reinstallare la versione più recente, "
+            "oppure ripristinare la copia zonecast.db.pre-upgrade-* presa prima dell'aggiornamento")
     from .services.bundle import _snapshot_sqlite
 
     target = db_path.with_name(f"{db_path.name}.pre-upgrade-{revision}-{utcnow():%Y%m%dT%H%M%SZ}")
     target.write_bytes(_snapshot_sqlite(db_path))
     logger.warning("Aggiornamento dello schema da %s: copia del database salvata in %s", revision, target)
+    return True
+
+
+def _prune_snapshots() -> None:
+    """Only after an upgrade succeeded: a start that keeps failing must
+    never rotate away the copy it would be rolled back to."""
+    db_path = settings.db_path
     old = sorted(db_path.parent.glob(f"{db_path.name}.pre-upgrade-*"), key=lambda p: p.stat().st_mtime)
     for path in old[:-KEEP_PRE_UPGRADE_SNAPSHOTS]:
         path.unlink(missing_ok=True)
 
 
 def run_migrations() -> None:
-    _snapshot_before_upgrade()
+    snapshot_taken = _snapshot_before_upgrade()
     engine = _migration_engine()
     try:
         with engine.begin() as connection:
@@ -140,3 +158,5 @@ def run_migrations() -> None:
             command.upgrade(cfg, "head")
     finally:
         engine.dispose()
+    if snapshot_taken:
+        _prune_snapshots()

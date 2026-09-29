@@ -38,15 +38,22 @@ function askConflict(params) {
         const by = c.source === 'schedule' ? t('play.conflictBySchedule', { name: c.by }) : t('play.conflictByUser', { name: c.by || '?' });
         item.append(el('div', 'small text-muted', `${by} · ${t('play.conflictRemaining', { s: c.remaining_seconds })}`));
         const more = c.shared_count > c.shared_speakers.length ? ', …' : '';
-        item.append(el('div', 'small', c.shared_count
-            ? t('play.conflictShared', { n: c.shared_count, names: c.shared_speakers.join(', ') + more })
-            : t('play.conflictSameGroup')));
+        if (c.shared_count) {
+            item.append(el('div', 'small', t('play.conflictShared', { n: c.shared_count, names: c.shared_speakers.join(', ') + more })));
+        }
+        // Two streams can't share a destination: that one stops either way.
+        if (c.same_group) item.append(el('div', 'small fw-medium', t('play.conflictWillStop')));
         return item;
     }));
     $('play-conflict-intro').textContent = t('play.conflictIntro', { count: params.count });
     const upcoming = params.upcoming || [];
-    $('play-conflict-upcoming').replaceChildren(...upcoming.map(u => el('li', '', t('play.conflictUpcomingItem', { name: u.name, s: u.in_seconds }))));
+    $('play-conflict-upcoming').replaceChildren(...upcoming.map(u => el('li', u.will_wait ? '' : 'text-danger',
+        t(u.will_wait ? 'play.conflictUpcomingItem' : 'play.conflictUpcomingSkipped', { name: u.name, s: u.in_seconds }))));
     $('play-conflict-upcoming-wrap').classList.toggle('d-none', !upcoming.length);
+    // "Play alongside" means nothing when every conflict is on this very destination.
+    const alongside = params.conflicts.some(c => !c.same_group);
+    $('play-conflict-overlap').classList.toggle('d-none', !alongside);
+    $('play-conflict-overlap-hint').classList.toggle('d-none', !alongside);
 
     return new Promise((resolve) => {
         const dlg = modal('play-conflict-modal');

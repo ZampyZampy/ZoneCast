@@ -131,7 +131,13 @@ function showConflicts(params) {
         const open = node('button', 'btn btn-link btn-sm p-0 align-baseline', t('schedules.openSchedule'));
         open.type = 'button';
         open.addEventListener('click', () => {
-            if (confirm(t('confirm.openOtherSchedule'))) edit(c.schedule_id);
+            if (!confirm(t('confirm.openOtherSchedule'))) return;
+            // It may have been created by someone else since this page loaded.
+            run(async () => {
+                await refresh('schedules', 'calendars', 'overlaps');
+                if (!state.schedules.some(x => x.id === c.schedule_id)) throw new Error(t('error.schedules.not_found'));
+                edit(c.schedule_id);
+            }, { button: open });
         });
         item.append(document.createTextNode(' '), open);
         list.append(item);

@@ -1,6 +1,7 @@
 """Speakers in several zones, managed from the zone side (1.6.0)."""
 import asyncio
 import sqlite3
+from datetime import datetime
 
 import pytest
 
@@ -262,3 +263,83 @@ def test_a_bundle_without_audio_files_keeps_the_current_ones(tmp_path, monkeypat
     monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
     pending_import.apply_pending_import()
     assert (media / "bell.pcm8k.wav").exists()
+
+
+def test_a_database_from_a_newer_version_is_refused_without_rotating_the_rollback_copy(tmp_path, monkeypatch):
+    from app import migrate
+
+    db_path = tmp_path / "rolled-back.db"
+    _point_settings_at(monkeypatch, db_path)
+    migrate.run_migrations()
+    keep = tmp_path / "rolled-back.db.pre-upgrade-0005-20260101T000000Z"
+    keep.write_bytes(b"the copy to roll back to")
+    con = sqlite3.connect(db_path)
+    con.execute("update alembic_version set version_num = '0999'")
+    con.commit()
+    con.close()
+    for _ in range(4):  # a service restarting in a loop
+        with pytest.raises(RuntimeError, match="0999"):
+            migrate.run_migrations()
+    assert keep.exists()
+    assert [p.name for p in tmp_path.glob("rolled-back.db.pre-upgrade-*")] == [keep.name]
+
+
+def test_the_stored_revision_is_read_from_awkward_paths(tmp_path):
+    from app import migrate
+
+    folder = tmp_path / "a%41b #1"
+    folder.mkdir()
+    con = sqlite3.connect(folder / "z.db")
+    con.execute("create table alembic_version (version_num varchar(32) not null)")
+    con.execute("insert into alembic_version values ('0004')")
+    con.commit()
+    con.close()
+    assert migrate._stored_revision(folder / "z.db") == "0004"
+
+
+def _out_of_sync(client):
+    alert = next((a for a in client.get("/api/system/alerts").json() if a["code"] == "speakers_out_of_sync"), None)
+    return alert["params"]["count"] if alert else 0
+
+
+def test_a_queued_push_survives_a_restart_as_pending(admin_client, pushes):
+    baseline = _out_of_sync(admin_client)  # earlier tests may leave failed pushes behind
+    sid = _speaker(admin_client)  # Fanvil: pushed by us
+    generic = _speaker(admin_client, brand="other")
+    _zone(admin_client, [sid, generic])
+    speakers = _speakers(admin_client)
+    assert speakers[sid]["paging_sync_ok"] is False and speakers[sid]["paging_sync_error"] == "pending"
+    assert speakers[generic]["paging_sync_ok"] is None  # configured by hand: nothing pending
+    assert _out_of_sync(admin_client) == baseline  # just queued: not a problem yet
+    db = SessionLocal()
+    try:  # ...but still pending ten minutes later (the push was lost)
+        db.query(Speaker).filter(Speaker.id == sid).update({Speaker.updated_at: datetime(2020, 1, 1)})
+        db.commit()
+    finally:
+        db.close()
+    assert _out_of_sync(admin_client) == baseline + 1
+
+
+def test_apply_now_waits_its_turn_with_a_queued_push(admin_client, monkeypatch):
+    sid = _speaker(admin_client)
+    running, done = [], []
+
+    async def slow_push(speaker):
+        running.append(speaker.id)
+        assert len(running) == 1, "two pushes to the same device at once"
+        await asyncio.sleep(0.05)
+        running.pop()
+        done.append(speaker.id)
+        return PushResult(success=True)
+
+    monkeypatch.setattr(multicast_provisioning, "push_to_speaker", slow_push)
+
+    async def scenario():
+        queued = asyncio.create_task(real_request_push(sid))
+        await asyncio.sleep(0.01)
+        result = await multicast_provisioning.push_now(sid)
+        await queued
+        return result
+
+    assert asyncio.run(scenario()).success
+    assert len(done) >= 2 and _speakers(admin_client)[sid]["paging_sync_ok"] is True

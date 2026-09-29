@@ -9,6 +9,7 @@ const DEFAULT_PORTS = { ftps: 21, ftp: 21, smb: 445 };
 const POLL_MS = 3000;
 let policy = null;
 let pollTimer = null;
+let lastFiles = [];
 
 const errorText = (code, detail) => {
     const key = `error.${code}`;
@@ -42,7 +43,6 @@ function fill(p) {
     $('ab-keep-remote').value = p.keep_remote;
     $('ab-bundle-password').value = '';
     $('ab-bundle-confirm').checked = false;
-    $('ab-bundle-password-state').textContent = t(p.has_bundle_password ? 'autobackup.passwordStored' : 'autobackup.passwordMissing');
     $('ab-destination').value = p.destination;
     $('ab-host').value = p.host;
     $('ab-port').value = p.port ?? '';
@@ -50,12 +50,18 @@ function fill(p) {
     $('ab-remote-dir').value = p.remote_dir;
     $('ab-username').value = p.username;
     $('ab-password').value = '';
-    $('ab-password-state').textContent = p.has_password ? t('autobackup.passwordStored') : '';
     $('ab-smb-encrypt').checked = p.smb_encrypt;
     $('ab-insecure').checked = p.allow_insecure_ftp;
     $('ab-fingerprint').value = p.tls_fingerprint;
     toggleFields();
+    renderPasswordStates();
     renderStatus();
+}
+
+function renderPasswordStates() {
+    if (!policy) return;
+    $('ab-bundle-password-state').textContent = t(policy.has_bundle_password ? 'autobackup.passwordStored' : 'autobackup.passwordMissing');
+    $('ab-password-state').textContent = policy.has_password ? t('autobackup.passwordStored') : '';
 }
 
 function renderStatus() {
@@ -66,7 +72,9 @@ function renderStatus() {
     const badge = { ok: 'bg-success', failed: 'bg-danger', paused_foreign: 'bg-warning text-dark' }[p.last_status];
     add('autobackup.lastRun', p.running
         ? `<span class="badge bg-primary">${esc(t('autobackup.running'))}</span>`
-        : (p.last_run_at ? `${esc(fmtDateTime(p.last_run_at))} <span class="badge ${badge || 'bg-secondary'}">${esc(t(`autobackup.status_${p.last_status}`))}</span>` : esc(t('autobackup.never'))));
+        : (p.last_run_at
+            ? `${esc(fmtDateTime(p.last_run_at))}${p.last_status ? ` <span class="badge ${badge || 'bg-secondary'}">${esc(t(`autobackup.status_${p.last_status}`))}</span>` : ''}`
+            : esc(t('autobackup.never'))));
     if (p.last_status === 'failed') add('autobackup.lastError', esc(errorText(p.last_error_code, p.last_error)));
     add('autobackup.lastSuccess', p.last_success_at ? esc(fmtDateTime(p.last_success_at)) : esc(t('autobackup.never')));
     if (p.last_warning) add('autobackup.lastWarning', esc(p.last_warning));
@@ -75,6 +83,7 @@ function renderStatus() {
 }
 
 function renderFiles(files) {
+    lastFiles = files;
     $('ab-files').innerHTML = files.map(f => {
         const url = `/api/system/auto-backup/files/${encodeURIComponent(f.name)}`;
         return `<tr>
@@ -190,5 +199,7 @@ export function init() {
 }
 
 export function rerender() {
+    renderPasswordStates();
     renderStatus();
+    if (policy) renderFiles(lastFiles);
 }

@@ -28,6 +28,7 @@ from ..errors import AppError
 from ..models import Media, Schedule, Speaker, TargetType, Zone
 from . import calendars
 from .footprint import Footprint, footprint
+from .scheduler import WEEKDAYS, weekday_set
 
 # Held from the check to the commit, so two saves can't both pass the
 # check with each other's overlap. A thread lock is enough: the service
@@ -159,7 +160,7 @@ def _describe(db: Session, mine: Plan, other: Plan, clash: datetime) -> dict:
         "target_type": other.target_type.value,
         "target_label": _target_label(db, other),
         "time": other.time_of_day.strftime("%H:%M"),
-        "days": [d for d in other.days_of_week.split(",") if d],
+        "days": [WEEKDAYS[i] for i in sorted(weekday_set(other.days_of_week))],
         "first_clash": clash.strftime("%Y-%m-%dT%H:%M"),
         "shared_count": len(shared),
         "shared_speakers": list(names),

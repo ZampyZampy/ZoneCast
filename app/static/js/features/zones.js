@@ -54,8 +54,9 @@ function memberRow(s) {
     const detail = [s.ip_address, s.location].filter(Boolean).join(' · ');
     const note = disabled ? t('zones.speakerFull', { max: s.max_zones })
         : (others ? t('zones.inOtherZones', { n: others }) : '');
+    const pending = s.paging_sync_ok === false && s.paging_sync_error === 'pending';
     const sync = s.paging_sync_ok === false
-        ? ` <span class="badge text-bg-warning" title="${esc(s.paging_sync_error || '')}">${esc(t('speakers.outOfSync'))}</span>` : '';
+        ? ` <span class="badge ${pending ? 'text-bg-info' : 'text-bg-warning'}" title="${esc(pending ? t('speakers.syncPendingTitle') : (s.paging_sync_error || ''))}">${esc(t(pending ? 'speakers.syncPending' : 'speakers.outOfSync'))}</span>` : '';
     return `<label class="list-group-item d-flex align-items-center gap-2${disabled ? ' text-muted' : ''}" for="zone-member-${id}">
             <input class="form-check-input m-0 flex-shrink-0" type="checkbox" id="zone-member-${id}" value="${id}"${checked ? ' checked' : ''}${disabled ? ' disabled' : ''}>
             <span class="status-dot status-${esc(s.status)} flex-shrink-0" aria-hidden="true"></span>
@@ -111,6 +112,8 @@ function bindMembers() {
         $('zone-members-count').textContent = selected.size;
     });
     $('zone-members-filter').addEventListener('input', renderMembers);
+    // Enter in the filter must not submit (and save) the zone half-edited.
+    $('zone-members-filter').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
     $('zone-members-selected-only').addEventListener('change', renderMembers);
     $('zone-members-select-shown').addEventListener('click', () => {
         visibleSpeakers().filter(s => !atLimit(s) || selected.has(s.id)).forEach(s => selected.add(s.id));

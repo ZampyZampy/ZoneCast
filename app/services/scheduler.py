@@ -10,6 +10,7 @@ of future dates.
 import asyncio
 import logging
 from datetime import date, datetime, timedelta
+from functools import lru_cache
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -119,6 +120,30 @@ def _is_holiday(d: date, country_code: str) -> bool:
 WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
 
 
+@lru_cache(maxsize=256)
+def weekday_set(days_of_week: str) -> frozenset[int]:
+    """Weekday numbers (0 = Monday) a days_of_week value means. Saved
+    values are "mon,tue,..."; rows from before 1.5.8 may hold anything
+    the cron trigger accepts ("mon-fri", "*", "0-4"), so those are read
+    with the trigger's own parser — the job fires on those days and must
+    not then skip itself."""
+    parts = {p.strip().lower() for p in days_of_week.split(",") if p.strip()}
+    if parts and parts <= set(WEEKDAYS):
+        return frozenset(WEEKDAYS.index(p) for p in parts)
+    try:
+        trigger = CronTrigger(day_of_week=days_of_week, hour=0, minute=0, second=0, timezone="UTC")
+    except ValueError:
+        return frozenset()
+    found, moment = set(), datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC"))  # a Monday
+    for _ in range(7):
+        fire = trigger.get_next_fire_time(None, moment)
+        if fire is None or (fire - datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC"))).days >= 7:
+            break
+        found.add(fire.weekday())
+        moment = fire + timedelta(days=1)
+    return frozenset(found)
+
+
 def skip_reason(sched, day: date, rules: tuple = ()) -> Optional[str]:
     """Why `sched` doesn't run on `day` — or None if it does. The one
     definition of "runs that day", used by the job itself and by the
@@ -129,7 +154,7 @@ def skip_reason(sched, day: date, rules: tuple = ()) -> Optional[str]:
         return "before_start"
     if sched.end_date and day > sched.end_date:
         return "after_end"
-    if WEEKDAYS[day.weekday()] not in (sched.days_of_week or "").split(","):
+    if day.weekday() not in weekday_set(sched.days_of_week or ""):
         return "weekday"
     if sched.exclude_holidays or sched.holidays_only:
         holiday = _is_holiday(day, sched.holiday_country)
@@ -180,12 +205,24 @@ async def _run_schedule(schedule_id: int):
                 await start()
             except player.GroupBusyError as busy:
                 logger.info("Schedulazione %s (%s): annuncio live in corso, attendo che finisca", schedule_id, sched.name)
-                db.commit()  # don't hold a pooled connection while waiting
-                waited_from = asyncio.get_running_loop().time()
-                await player.wait_for(busy.params.get("log_ids", []), timeout=LIVE_WAIT_SECONDS)
-                await start()
+                loop = asyncio.get_running_loop()
+                waited_from = loop.time()
+                deadline = waited_from + LIVE_WAIT_SECONDS
+                # Keep waiting while live announcements follow one another
+                # on these speakers, up to the deadline.
+                while True:
+                    db.commit()  # don't hold a pooled connection while waiting
+                    remaining = deadline - loop.time()
+                    if remaining <= 0:
+                        raise busy
+                    await player.wait_for(busy.params.get("log_ids", []), timeout=remaining)
+                    try:
+                        await start()
+                        break
+                    except player.GroupBusyError as again:
+                        busy = again
                 logger.info("Schedulazione %s (%s) eseguita con %.0f s di ritardo", schedule_id, sched.name,
-                            asyncio.get_running_loop().time() - waited_from)
+                            loop.time() - waited_from)
         except (player.TargetResolutionError, player.GroupBusyError) as exc:
             # e.g. its audio file or zone was deleted, or the announcement
             # went on too long: recorded as a failed run so the login alert

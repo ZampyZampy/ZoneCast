@@ -53,6 +53,8 @@ def create_speaker(
         raise exc.http(400) from exc
     speaker = Speaker(**payload.model_dump())
     db.add(speaker)
+    db.flush()
+    multicast_provisioning.mark_pending(db, [speaker.id])
     db.commit()
     db.refresh(speaker)
     background_tasks.add_task(multicast_provisioning.request_push, speaker.id)
@@ -109,9 +111,12 @@ def update_speaker(
         raise AppError(422, "zones.speaker_zone_limit",
                        f"{speaker.name} is in more zones than its device can listen to ({limit}).",
                        name=speaker.name, max=limit)
+    needs_push = bool((_PAGING_RELEVANT_FIELDS | _DEVICE_ACCESS_FIELDS) & really_changed)
+    if needs_push:
+        multicast_provisioning.mark_pending(db, [speaker.id])
     db.commit()
     db.refresh(speaker)
-    if (_PAGING_RELEVANT_FIELDS | _DEVICE_ACCESS_FIELDS) & really_changed:
+    if needs_push:
         background_tasks.add_task(multicast_provisioning.request_push, speaker.id)
     return speaker
 
@@ -170,12 +175,17 @@ async def push_config_now(speaker_id: int, db: Session = Depends(get_db), _: Use
     speaker = db.query(Speaker).filter(Speaker.id == speaker_id).first()
     if not speaker:
         raise AppError(404, "speakers.not_found", "Speaker not found.")
-    result = await multicast_provisioning.push_to_speaker(speaker)
-    multicast_provisioning.record_outcome(db, speaker.id, result)
+    brand = speaker.brand
+    db.commit()  # no pooled connection held during the device round trip
+    result = await multicast_provisioning.push_now(speaker_id)
+    if result is None:
+        raise AppError(502, "speakers.push_failed",
+                       "The device accepted only part of the configuration, or none of it: check credentials, reachability and firmware.",
+                       applied=[], failed=["internal error: see the Log tab"])
     if result.unsupported_brand:
         raise AppError(400, "speakers.push_unsupported",
-                       f"Automatic setup isn't supported for brand \"{speaker.brand or '-'}\": configure the multicast groups on the device (see Preview).",
-                       brand=speaker.brand or "-")
+                       f"Automatic setup isn't supported for brand \"{brand or '-'}\": configure the multicast groups on the device (see Preview).",
+                       brand=brand or "-")
     if not result.success:
         raise AppError(502, "speakers.push_failed",
                        "The device accepted only part of the configuration, or none of it: check credentials, reachability and firmware.",

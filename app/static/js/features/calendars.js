@@ -103,10 +103,12 @@ const DATE_RE = /(\d{4})-(\d{1,2})-(\d{1,2})|(\d{1,2})[/.](\d{1,2})[/.](\d{4})/g
 function parseLine(line) {
     const dates = [];
     for (const m of line.matchAll(DATE_RE)) {
-        const [y, mo, d] = m[1] ? [m[1], m[2], m[3]] : [m[6], m[5], m[4]];
-        const iso = `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
-        if (Number.isNaN(Date.parse(iso))) return null;
-        dates.push(iso);
+        const [y, mo, d] = (m[1] ? [m[1], m[2], m[3]] : [m[6], m[5], m[4]]).map(Number);
+        // Date.parse accepts 31/04 (rolling over to May 1): build the day
+        // and read it back instead.
+        const dt = new Date(Date.UTC(y, mo - 1, d));
+        if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== mo - 1 || dt.getUTCDate() !== d) return null;
+        dates.push(`${String(y).padStart(4, '0')}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
     }
     if (dates.length < 1 || dates.length > 2) return null;
     const label = line.replace(DATE_RE, '').replace(/^[\s\-–—:.,;]+|[\s\-–—:.,;]+$/g, '').replace(/\s*[-–—]\s*/, ' ').trim();

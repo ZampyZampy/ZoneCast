@@ -27,9 +27,12 @@ function statusCell(s) {
     const label = esc(t(`status.${s.status}`));
     // The device didn't take its latest paging list (offline, wrong
     // credentials...): its zones in the dashboard aren't what it plays.
-    const sync = s.paging_sync_ok === false
-        ? ` <span class="badge text-bg-warning" title="${esc(t('speakers.outOfSyncTitle', { error: s.paging_sync_error || '' }))}">${esc(t('speakers.outOfSync'))}</span>`
-        : '';
+    let sync = '';
+    if (s.paging_sync_ok === false && s.paging_sync_error === 'pending') {
+        sync = ` <span class="badge text-bg-info" title="${esc(t('speakers.syncPendingTitle'))}">${esc(t('speakers.syncPending'))}</span>`;
+    } else if (s.paging_sync_ok === false) {
+        sync = ` <span class="badge text-bg-warning" title="${esc(t('speakers.outOfSyncTitle', { error: s.paging_sync_error || '' }))}">${esc(t('speakers.outOfSync'))}</span>`;
+    }
     return `<span class="status-dot status-${esc(s.status)}" title="${label}" aria-hidden="true"></span><span class="status-dot-label">${label}</span>${sync}`;
 }
 
@@ -190,7 +193,7 @@ export function init() {
             if (!confirm(t('confirm.deleteSpeaker'))) return;
             run(async () => {
                 await api(`/api/speakers/${id}`, { method: 'DELETE' });
-                await refresh('speakers', 'zones');
+                await refresh('speakers', 'zones', 'overlaps');  // its zones' schedules may no longer overlap
             }, { button: btn });
         },
     });

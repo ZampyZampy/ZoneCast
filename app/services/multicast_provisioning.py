@@ -48,6 +48,11 @@ PUSH_CONCURRENCY = 4
 # Keyed by event loop like player._play_locks (tests run several loops).
 _push_state: dict[tuple[int, int], dict] = {}
 _push_limits: dict[int, asyncio.Semaphore] = {}
+# One device round trip at a time per speaker, queued or manual.
+_device_locks: dict[tuple[int, int], asyncio.Lock] = {}
+# Stored on a speaker while its push is queued: if the process stops
+# before it runs, the flag survives and the periodic check re-pushes it.
+PENDING = "pending"
 
 
 def max_zones(speaker: Speaker) -> int | None:
@@ -103,6 +108,17 @@ async def push_to_speaker(speaker: Speaker) -> PushResult:
     return result
 
 
+def mark_pending(db, speaker_ids) -> None:
+    """Call in the same transaction as the change that needs a push."""
+    ids = list(dict.fromkeys(speaker_ids))
+    if not ids:
+        return
+    for speaker in db.query(Speaker).filter(Speaker.id.in_(ids)).all():
+        driver = get_driver(speaker.brand)
+        if driver and driver.supports_multicast_push:
+            speaker.paging_sync_ok, speaker.paging_sync_error = False, PENDING
+
+
 def record_outcome(db, speaker_id: int, result: PushResult) -> None:
     """Stores how the last push went, for the dashboard's "not in sync"
     badge and the login alert."""
@@ -120,24 +136,44 @@ def record_outcome(db, speaker_id: int, result: PushResult) -> None:
     db.commit()
 
 
-async def _push_and_record(speaker_id: int) -> None:
+def _device_lock(speaker_id: int) -> asyncio.Lock:
+    return _device_locks.setdefault((id(asyncio.get_running_loop()), speaker_id), asyncio.Lock())
+
+
+async def _push_and_record(speaker_id: int) -> PushResult | None:
+    """Loads the speaker as it is now, pushes, records the outcome."""
     from ..database import SessionLocal
 
-    db = SessionLocal(expire_on_commit=False)
-    try:
-        speaker = db.query(Speaker).options(selectinload(Speaker.zones)).filter(Speaker.id == speaker_id).first()
-        # Hand the connection back before the (seconds long) device
-        # round trip — see scheduler._check_all_speakers_job.
-        db.commit()
-        if not speaker:
-            return
-        result = await push_to_speaker(speaker)
-        record_outcome(db, speaker_id, result)
-    except Exception:
-        db.rollback()
-        logger.exception("Push della configurazione multicast all'altoparlante %s non riuscito", speaker_id)
-    finally:
-        db.close()
+    async with _device_lock(speaker_id):
+        db = SessionLocal(expire_on_commit=False)
+        try:
+            speaker = db.query(Speaker).options(selectinload(Speaker.zones)).filter(Speaker.id == speaker_id).first()
+            # Hand the connection back before the (seconds long) device
+            # round trip — see scheduler._check_all_speakers_job.
+            db.commit()
+            if not speaker:
+                return None
+            result = await push_to_speaker(speaker)
+            record_outcome(db, speaker_id, result)
+            return result
+        except Exception:
+            db.rollback()
+            logger.exception("Push della configurazione multicast all'altoparlante %s non riuscito", speaker_id)
+            return None
+        finally:
+            db.close()
+
+
+async def push_now(speaker_id: int) -> PushResult | None:
+    """The "Apply now" button: a push the caller waits for, taking its
+    turn with any queued one for the same device. A queued push still
+    running afterwards goes round once more, so the device ends up with
+    the latest list either way."""
+    result = await _push_and_record(speaker_id)
+    state = _push_state.get((id(asyncio.get_running_loop()), speaker_id))
+    if state is not None:
+        state["dirty"] = True
+    return result
 
 
 async def request_push(speaker_id: int) -> None:

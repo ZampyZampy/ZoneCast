@@ -130,9 +130,10 @@ async def _stop_and_wait(log_id: int, timeout: float = 2.0) -> None:
         await asyncio.wait({handle.task}, timeout=timeout)
 
 
-def _conflict(db: Session, log_id: int, stream: _Stream, fp: Footprint) -> dict:
+def _conflict(db: Session, log_id: int, stream: _Stream, fp: Footprint, group: tuple[str, int]) -> dict:
     """JSON-ready description of a running stream a new one would clash
-    with, for the dashboard's "already playing" dialog."""
+    with, for the dashboard's "already playing" dialog. `same_group`:
+    on the very same destination it is stopped whatever the user picks."""
     shared = stream.footprint.speakers & fp.speakers
     names = db.scalars(select(Speaker.name).where(Speaker.id.in_(shared)).order_by(Speaker.name).limit(MAX_NAMES)).all()
     return {
@@ -146,6 +147,7 @@ def _conflict(db: Session, log_id: int, stream: _Stream, fp: Footprint) -> dict:
         "remaining_seconds": max(0, round(stream.duration - (time.monotonic() - stream.started))),
         "shared_count": len(shared),
         "shared_speakers": list(names),
+        "same_group": stream.group == group,
     }
 
 
@@ -197,7 +199,7 @@ async def play(
                 raise GroupBusyError("playback.group_busy", "Destination busy with a live announcement", log_ids=blocking)
             to_stop = same_group
         elif on_conflict == "ask" and clashing:
-            conflicts = [_conflict(db, lid, s, fp) for lid, s in clashing.items()]
+            conflicts = [_conflict(db, lid, s, fp, group) for lid, s in clashing.items()]
             raise SpeakersBusyError(
                 "playback.speakers_busy", f"{len(conflicts)} playback(s) already running on some of these speakers.",
                 count=len(conflicts), names=", ".join(c["label"] for c in conflicts[:MAX_NAMES]), conflicts=conflicts)

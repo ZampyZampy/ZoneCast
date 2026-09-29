@@ -272,6 +272,8 @@ def test_zone_members_checklist_filters_and_keeps_the_selection(page, server):
     page.fill("#zone-name", f"members-{tag}")
     page.fill("#zone-mcast-addr", "239.255.91.1")
     page.fill("#zone-members-filter", f"hall-{tag}")
+    page.press("#zone-members-filter", "Enter")  # must not save the half-edited zone
+    assert page.is_visible("#zone-modal")
     assert page.locator("#zone-members-list input[type=checkbox]").count() == 2
     page.click("#zone-members-select-shown")
     page.fill("#zone-members-filter", "north")  # location matches too
@@ -338,10 +340,10 @@ def test_custom_dates_list_and_schedule_rule(page, server):
     page.locator("#calendar-entries [data-field=start]").first.fill("2026-08-10")
     page.locator("#calendar-entries [data-field=end]").first.fill("2026-08-21")
     page.click("#calendar-modal summary")
-    page.fill("#calendar-paste", "24/12/2026 06/01/2027 Christmas\nnot a date")
+    page.fill("#calendar-paste", "24/12/2026 06/01/2027 Christmas\nnot a date\n31/04/2026 Ponte")
     page.click("#calendar-paste-add")
     assert page.inner_text("#calendar-entry-count") == "2"
-    assert page.input_value("#calendar-paste") == "not a date"  # what couldn't be read stays there
+    assert page.input_value("#calendar-paste") == "not a date\n31/04/2026 Ponte"  # unreadable or impossible: kept
     page.locator("#calendar-entries [data-field=yearly]").nth(1).check()
     page.click("#calendar-modal button[type=submit]")
     page.wait_for_selector(f"#calendars-body tr:has-text('closures-{tag}'):has-text('Christmas')")

@@ -192,3 +192,86 @@ def test_a_bell_gives_up_if_the_announcement_goes_on_too_long(site, fake_stream,
         assert [r.status for r in runs] == [PlaybackStatus.failed] and "live announcement" in runs[0].error_message
     finally:
         db.close()
+
+
+def test_a_bell_keeps_waiting_when_a_second_announcement_follows_the_first(site, fake_stream, monkeypatch):
+    monkeypatch.setattr(scheduler_service, "LIVE_WAIT_SECONDS", 3)
+    db = SessionLocal()
+    try:
+        bell = Schedule(name="bell-after-two", media_id=site["media"], target_type=TargetType.zone, target_id=site["B"],
+                        time_of_day=dtime(8, 0), days_of_week="mon,tue,wed,thu,fri,sat,sun")
+        db.add(bell)
+        db.commit()
+        bell_id = bell.id
+    finally:
+        db.close()
+
+    async def scenario():
+        db = SessionLocal()
+        try:
+            await player.play(db, site["media"], TargetType.zone, site["A"])
+            waiting = asyncio.create_task(scheduler_service._run_schedule(bell_id))
+            await asyncio.sleep(0.2)
+            fake_stream["239.253.70.1"] = 0.3  # the replacement announcement is short
+            await player.play(db, site["media"], TargetType.zone, site["A"], on_conflict="stop")
+            await waiting
+        finally:
+            db.close()
+        await player.stop_all()
+
+    asyncio.run(scenario())
+    db = SessionLocal()
+    try:
+        runs = db.query(PlaybackLog).filter(PlaybackLog.schedule_id == bell_id).all()
+        assert len(runs) == 1 and runs[0].status != PlaybackStatus.failed
+    finally:
+        db.close()
+
+
+def test_the_dialog_says_which_streams_stop_anyway(site, fake_stream):
+    async def scenario():
+        db = SessionLocal()
+        try:
+            await player.play(db, site["media"], TargetType.zone, site["A"])
+            await player.play(db, site["media"], TargetType.zone, site["B"], on_conflict="overlap")
+            with pytest.raises(player.SpeakersBusyError) as busy:
+                await player.play(db, site["media"], TargetType.zone, site["A"], on_conflict="ask")
+            return {c["label"]: c["same_group"] for c in busy.value.params["conflicts"]}
+        finally:
+            db.close()
+            await player.stop_all()
+
+    assert asyncio.run(scenario()) == {"conflict-A": True, "conflict-B": False}
+
+
+def test_upcoming_bells_only_list_those_that_really_play_and_say_if_they_wait(site, admin_client, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+
+    from app.routers import playback
+    from app.schemas import PlayRequest
+
+    db = SessionLocal()
+    try:
+        soon = Schedule(name="soon", media_id=site["media"], target_type=TargetType.zone, target_id=site["B"],
+                        time_of_day=dtime(8, 0), days_of_week="mon,tue,wed,thu,fri,sat,sun")
+        late = Schedule(name="late", media_id=site["media"], target_type=TargetType.zone, target_id=site["B"],
+                        time_of_day=dtime(8, 0), days_of_week="mon,tue,wed,thu,fri,sat,sun")
+        over = Schedule(name="over", media_id=site["media"], target_type=TargetType.zone, target_id=site["B"],
+                        time_of_day=dtime(8, 0), days_of_week="mon,tue,wed,thu,fri,sat,sun",
+                        end_date=datetime.now().date() - timedelta(days=3))
+        db.add_all([soon, late, over])
+        db.commit()
+        now = datetime.now(timezone.utc)
+        runs = {f"schedule-{soon.id}": now + timedelta(seconds=5), f"schedule-{late.id}": now + timedelta(seconds=25),
+                f"schedule-{over.id}": now + timedelta(seconds=5)}
+        engine = SimpleNamespace(running=False, get_jobs=lambda: [],
+                                 get_job=lambda job_id: SimpleNamespace(next_run_time=runs[job_id]) if job_id in runs else None)
+        monkeypatch.setattr(scheduler_service, "get_scheduler", lambda: engine)
+        monkeypatch.setattr(scheduler_service, "LIVE_WAIT_SECONDS", 10)  # the 30 s file ends 30 s from now
+        found = playback._upcoming(db, PlayRequest(media_id=site["media"], target_type="zone", target_id=site["A"]))
+        assert [(u["name"], u["will_wait"]) for u in found] == [("soon", False), ("late", True)]  # "over" has ended
+    finally:
+        db.query(Schedule).filter(Schedule.name.in_(["soon", "late", "over"])).delete(synchronize_session=False)
+        db.commit()
+        db.close()

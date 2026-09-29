@@ -293,3 +293,13 @@ def test_new_zone_members_report_the_overlaps_they_create(admin_client, media):
     res = admin_client.put(f"/api/zones/{zone}", json=body)
     assert res.status_code == 200  # saved anyway: blocking could stop the very fix
     assert [(w["a_id"], w["b_id"]) for w in res.json()["warnings"]] == [(on_zone["id"], on_speaker["id"])]
+
+
+def test_legacy_day_strings_still_ring_on_their_days():
+    from types import SimpleNamespace
+    assert scheduler_service.weekday_set("mon-fri") == frozenset(range(5))
+    assert scheduler_service.weekday_set("*") == frozenset(range(7))
+    legacy = SimpleNamespace(start_date=None, end_date=None, days_of_week="mon-fri", exclude_holidays=False,
+                             holidays_only=False, holiday_country="IT")
+    assert scheduler_service.skip_reason(legacy, date(2026, 10, 5)) is None  # a Monday
+    assert scheduler_service.skip_reason(legacy, date(2026, 10, 4)) == "weekday"  # a Sunday

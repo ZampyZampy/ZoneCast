@@ -72,6 +72,7 @@ def create_zone(
     _check_zone_limit(None, members)
     zone.speakers = members
     db.add(zone)
+    multicast_provisioning.mark_pending(db, [s.id for s in members])
     db.commit()
     db.refresh(zone)
     _log_membership(zone, {}, {s.id: s.name for s in zone.speakers}, user)
@@ -121,14 +122,16 @@ def update_zone(
         if membership_changes:
             db.flush()
             warnings = overlap.new_pairs(pairs_before, overlap.all_pairs(db))
+        # Members that joined or left need their paging list rewritten;
+        # all of them when what their devices store for this zone changed.
+        after_ids = {s.id for s in members} if members is not None else set(before)
+        targets = (before.keys() | after_ids) if paging_changed else (before.keys() ^ after_ids)
+        multicast_provisioning.mark_pending(db, targets)
         db.commit()
     db.refresh(zone)
     zone.warnings = warnings
     after = {s.id: s.name for s in zone.speakers}
     _log_membership(zone, before, after, user)
-    # Members that joined or left need their paging list rewritten; all
-    # of them when what their devices store for this zone changed.
-    targets = (before.keys() | after.keys()) if paging_changed else (before.keys() ^ after.keys())
     if targets:
         background_tasks.add_task(multicast_provisioning.request_pushes, sorted(targets))
     return zone
@@ -148,6 +151,7 @@ def delete_zone(
     member_ids, name = zone.speaker_ids, zone.name
     zone.speakers = []
     db.delete(zone)
+    multicast_provisioning.mark_pending(db, member_ids)
     db.commit()
     logger.info("Zona '%s' eliminata (utente %s)", name, user.username)
     # The devices still listen on the deleted zone's group until told
