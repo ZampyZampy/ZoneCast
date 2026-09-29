@@ -303,3 +303,10 @@ def test_legacy_day_strings_still_ring_on_their_days():
                              holidays_only=False, holiday_country="IT")
     assert scheduler_service.skip_reason(legacy, date(2026, 10, 5)) is None  # a Monday
     assert scheduler_service.skip_reason(legacy, date(2026, 10, 4)) == "weekday"  # a Sunday
+
+
+def test_the_first_clash_reported_is_never_in_the_past(admin_client, media):
+    s = _speaker(admin_client)
+    _ok(_schedule(admin_client, media(10), "07:45:00", target=("speaker", s)))
+    params = _refused(_schedule(admin_client, media(10), "07:45:00", target=("speaker", s)))
+    assert date.fromisoformat(params["first_clash"][:10]) >= _today()

@@ -132,13 +132,16 @@ def first_clash(ctx: _Context, a: Plan, b: Plan) -> Optional[datetime]:
     if not a_days or not b_days:
         return None
     a_len, b_len = timedelta(seconds=a.duration), timedelta(seconds=b.duration)
+    # The window starts the day before so that yesterday's late run
+    # spilling past midnight is seen; a clash already in the past isn't.
+    since = datetime.combine(ctx.today, time(0))
     for d in sorted(a_days):
         a0 = datetime.combine(d, a.time_of_day)
         for offset in (-1, 0, 1):
             e = d + offset * DAY
             if e in b_days:
                 b0 = datetime.combine(e, b.time_of_day)
-                if a0 < b0 + b_len and b0 < a0 + a_len:
+                if a0 < b0 + b_len and b0 < a0 + a_len and max(a0, b0) >= since:
                     return max(a0, b0)
     return None
 

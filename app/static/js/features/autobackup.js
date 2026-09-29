@@ -88,7 +88,7 @@ function renderFiles(files) {
         const url = `/api/system/auto-backup/files/${encodeURIComponent(f.name)}`;
         return `<tr>
             <td class="text-break"><code>${esc(f.name)}</code>${f.own ? '' : ` <span class="badge bg-secondary">${esc(t('autobackup.otherInstallation'))}</span>`}</td>
-            <td class="text-nowrap">${esc((f.size / 1024 / 1024).toFixed(1))} MB</td>
+            <td class="text-nowrap">${esc(f.size >= 1024 * 1024 ? `${(f.size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(f.size / 1024))} KB`)}</td>
             <td class="table-actions text-end">
                 <a class="btn btn-sm btn-outline-secondary" href="${esc(url)}" download aria-label="${esc(t('action.download'))}" title="${esc(t('action.download'))}"><i class="bi bi-download" aria-hidden="true"></i></a>
                 <button type="button" class="btn btn-sm btn-outline-danger" data-ab-delete="${esc(f.name)}" aria-label="${esc(t('action.delete'))}" title="${esc(t('action.delete'))}"><i class="bi bi-trash" aria-hidden="true"></i></button>
