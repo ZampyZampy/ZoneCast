@@ -25,18 +25,25 @@ robust for simultaneous/synchronized playback and does not require
 holding a SIP registration or dialog per speaker.
 """
 import asyncio
-import audioop
 import random
 import socket
 import struct
 import threading
 import time
+import warnings
 import wave
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 from ..config import settings
+
+# G.711 encoding: the stdlib module on Python 3.11/3.12, which warns that
+# it's going away (it's gone in 3.13, where the audioop-lts backport from
+# requirements.txt provides the same module).
+with warnings.catch_warnings():
+    warnings.simplefilter("ignore", DeprecationWarning)
+    import audioop  # noqa: E402
 
 RTP_VERSION = 2
 SAMPLE_WIDTH = 2  # 16-bit PCM input
