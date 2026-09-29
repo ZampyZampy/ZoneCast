@@ -34,7 +34,7 @@ def _out(policy) -> dict:
            if not c.name.endswith("_enc") and c.name not in ("id", "instance_id", "updated_at")},
         "has_bundle_password": auto_backup.readable(policy.bundle_password_enc),
         "has_password": auto_backup.readable(policy.password_enc),
-        "foreign": policy.instance_id != instance_id(),
+        "foreign": auto_backup.is_foreign(policy),
         "running": auto_backup.running(),
         "next_run_at": auto_backup.next_run_at() if policy.enabled else None,
     }
@@ -138,7 +138,9 @@ async def run_now(background_tasks: BackgroundTasks, db: Session = Depends(get_d
     db.commit()
     if auto_backup.running():
         raise AppError(409, "backup.already_running", "A backup is already running.")
-    if policy.instance_id != instance_id():
+    if not auto_backup.readable(policy.bundle_password_enc):
+        raise AppError(422, "backup.bundle_password_required", "Set the password that protects the backups.")
+    if auto_backup.is_foreign(policy):
         raise AppError(409, "backup.paused_foreign", "These settings came from another installation: save them first.")
     logger.info("Backup automatico avviato a mano da %s", user.username)
 

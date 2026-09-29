@@ -58,6 +58,7 @@ class Plan:
     rules: tuple
     duration: int
     footprint: Footprint
+    key: int = 0  # unique within one _Context: the run-day cache key
 
 
 class _Context:
@@ -67,10 +68,12 @@ class _Context:
         from .scheduler import scheduler_timezone
 
         self.db = db
-        self.today = datetime.now(ZoneInfo(scheduler_timezone())).date()
+        self.now = datetime.now(ZoneInfo(scheduler_timezone())).replace(tzinfo=None)
+        self.today = self.now.date()
         self.calendars = calendars.load_calendars(db)
         self._footprints: dict = {}
         self._days: dict = {}
+        self._serial = 0
 
     def footprint(self, target_type, target_id) -> Footprint:
         key = (TargetType(target_type), target_id)
@@ -91,12 +94,19 @@ class _Context:
             exclude_holidays=bool(sched.exclude_holidays), holidays_only=bool(sched.holidays_only),
             holiday_country=sched.holiday_country or "", rules=calendars.rules_for(source, self.calendars),
             duration=duration, footprint=self.footprint(sched.target_type, sched.target_id),
+            key=self._next_key(),
         )
+
+    def _next_key(self) -> int:
+        # Not id(plan): a plan freed inside a loop can hand its address to
+        # the next one, which would then get the old plan's run days.
+        self._serial += 1
+        return self._serial
 
     def run_days(self, plan: Plan, lo: date, hi: date) -> frozenset[date]:
         from .scheduler import skip_reason
 
-        key = (id(plan), lo, hi)
+        key = (plan.key, lo, hi)
         if key not in self._days:
             first = max(lo, plan.start_date) if plan.start_date else lo
             last = min(hi, plan.end_date) if plan.end_date else hi
@@ -133,15 +143,15 @@ def first_clash(ctx: _Context, a: Plan, b: Plan) -> Optional[datetime]:
         return None
     a_len, b_len = timedelta(seconds=a.duration), timedelta(seconds=b.duration)
     # The window starts the day before so that yesterday's late run
-    # spilling past midnight is seen; a clash already in the past isn't.
-    since = datetime.combine(ctx.today, time(0))
+    # spilling past midnight is seen; a clash already over isn't.
+    since = ctx.now
     for d in sorted(a_days):
         a0 = datetime.combine(d, a.time_of_day)
         for offset in (-1, 0, 1):
             e = d + offset * DAY
             if e in b_days:
                 b0 = datetime.combine(e, b.time_of_day)
-                if a0 < b0 + b_len and b0 < a0 + a_len and max(a0, b0) >= since:
+                if a0 < b0 + b_len and b0 < a0 + a_len and min(a0 + a_len, b0 + b_len) > since:
                     return max(a0, b0)
     return None
 

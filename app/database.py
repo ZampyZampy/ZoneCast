@@ -1,3 +1,5 @@
+import multiprocessing
+
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 
@@ -8,7 +10,8 @@ from .services.pending_import import apply_pending_import
 # routers/system.py's /import endpoint) is applied by swapping files on
 # disk, which has to happen before anything in this process opens the
 # database file — see services/pending_import.py.
-apply_pending_import()
+if multiprocessing.parent_process() is None:  # not in a helper child process
+    apply_pending_import()
 
 is_sqlite = settings.database_url.startswith("sqlite")
 connect_args = {"check_same_thread": False} if is_sqlite else {}

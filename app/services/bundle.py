@@ -135,8 +135,12 @@ def extract_bundle(*, data: bytes, password: str, target_root: Path) -> list[str
                 raise BundleError("bundle.unsafe", f"Disallowed entry in the bundle: {member.name}", name=member.name)
             if not (root / member.name).resolve().is_relative_to(root):
                 raise BundleError("bundle.unsafe", f"Unsafe path in the bundle: {member.name}", name=member.name)
+        # Only what gets restored: manifest.json (automatic backups) is
+        # descriptive, and target_root may not be writable (a CLI restore
+        # into the root-owned install directory).
+        wanted = [m for m in members if m.name.split("/", 1)[0] in ("data", "media", "backups")]
         if hasattr(tarfile, "data_filter"):  # Python 3.11.4+/3.12+
-            tar.extractall(path=target_root, filter="data")
+            tar.extractall(path=target_root, members=wanted, filter="data")
         else:
-            tar.extractall(path=target_root)
-        return [m.name for m in members]
+            tar.extractall(path=target_root, members=wanted)
+        return [m.name for m in wanted]

@@ -310,3 +310,21 @@ def test_the_first_clash_reported_is_never_in_the_past(admin_client, media):
     _ok(_schedule(admin_client, media(10), "07:45:00", target=("speaker", s)))
     params = _refused(_schedule(admin_client, media(10), "07:45:00", target=("speaker", s)))
     assert date.fromisoformat(params["first_clash"][:10]) >= _today()
+
+
+def test_each_schedule_is_checked_with_its_own_run_days(admin_client, media):
+    """Many other schedules on the same speaker, only the last one runs on
+    the new schedule's day: its days must not be mixed up with another's."""
+    s = _speaker(admin_client)
+    for day in ("mon", "tue", "wed", "thu", "fri"):
+        _ok(_schedule(admin_client, media(10), "10:30:00", days=day, target=("speaker", s)))
+    saturday = _ok(_schedule(admin_client, media(10), "18:00:00", days="sat", target=("speaker", s)))
+    params = _refused(_schedule(admin_client, media(10), "18:00:00", days="sat", target=("speaker", s)))
+    assert [c["schedule_id"] for c in params["conflicts"]] == [saturday["id"]]
+
+
+def test_a_schedule_that_has_ended_blocks_nothing(admin_client, media):
+    s = _speaker(admin_client)
+    yesterday = (_today() - timedelta(days=1)).isoformat()
+    _ok(_schedule(admin_client, media(10), "09:15:00", target=("speaker", s), end_date=yesterday))
+    _ok(_schedule(admin_client, media(10), "09:15:00", target=("speaker", s)))

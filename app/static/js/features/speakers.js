@@ -1,6 +1,7 @@
 // Speakers: table, ping, multicast preview/push, create/edit/delete.
 import { api } from '../lib/api.js';
-import { $, actionButton, esc, modal, onAction, run, toast, withBusy } from '../lib/dom.js';
+import { $, actionButton, esc, isVisible, modal, onAction, run, toast, withBusy } from '../lib/dom.js';
+import { poller } from '../lib/poller.js';
 import { makeSortable, sortedRows } from '../lib/sort.js';
 import { isAdmin, onDataChange, refresh, state, zoneName } from '../state.js';
 import { openBackups } from './backups.js';
@@ -146,10 +147,20 @@ async function push(id, btn) {
                 toast(err.message, 'danger');
             }
         }
+        try { await refresh('speakers'); } catch (err) { /* the badge catches up on the next refresh */ }
     }, { busyLabel: t('action.applying') });
 }
 
+// Pushes to the devices run in the background after a save: while any is
+// pending, re-read the speakers so "Updating…" turns into the outcome.
+const SYNC_POLL_MS = 3000;
+const syncPoller = poller(() => refresh('speakers'), SYNC_POLL_MS, {
+    when: () => state.speakers.some(s => s.paging_sync_ok === false && s.paging_sync_error === 'pending')
+        && (isVisible($('tab-speakers')) || isVisible($('tab-zones'))),
+});
+
 export function init() {
+    syncPoller.start();
     makeSortable('speakers', SORT, render);
     onDataChange((changed) => {
         if (changed.has('speakers') || changed.has('zones')) render();

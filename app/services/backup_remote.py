@@ -198,7 +198,14 @@ class _FtpRemote:
             with open(local, "rb") as f:
                 self.ftp.storbinary(f"STOR {tmp}", f)
             self.ftp.rename(tmp, name)
-        except (OSError, ftplib.Error) as exc:
+        except (OSError, ftplib.Error, EOFError) as exc:
+            try:
+                self.ftp.delete(tmp)  # no half-written bundle left behind
+            except (OSError, ftplib.Error, EOFError):
+                pass
+            if isinstance(exc, ftplib.error_perm) and str(exc).startswith("550"):
+                raise BackupError("backup.access_denied", "This account can't write to that folder.",
+                                  detail=_short(exc)) from exc
             raise BackupError("backup.upload_failed", "The upload failed.", detail=_short(exc)) from exc
         try:
             self.ftp.voidcmd("TYPE I")
@@ -242,7 +249,24 @@ def _smbclient():
     return smbclient
 
 
+# NTSTATUS codes smbclient reports (as SMBOSError.ntstatus) after login.
+_NT_AUTH = {0xC000006D, 0xC0000072, 0xC0000071, 0xC0000064, 0xC000006A, 0xC0000070, 0xC0000234}
+_NT_DENIED = {0xC0000022}
+_NT_NOT_FOUND = {0xC00000CC, 0xC000003A, 0xC0000034, 0xC00000BE}
+
+
 def _smb_error(exc: BaseException) -> BackupError:
+    status = getattr(exc, "ntstatus", None)
+    if status is not None:
+        status &= 0xFFFFFFFF
+        if status in _NT_AUTH:
+            return BackupError("backup.auth_failed", "The server refused the username or password.", detail=_short(exc))
+        if status in _NT_DENIED:
+            return BackupError("backup.access_denied", "This account can't write to that share or folder.",
+                               detail=_short(exc))
+        if status in _NT_NOT_FOUND:
+            return BackupError("backup.share_not_found", "The share or folder doesn't exist.", detail=_short(exc))
+        return BackupError("backup.upload_failed", "The SMB operation failed.", detail=_short(exc))
     name = type(exc).__name__
     if isinstance(exc, socket.gaierror):
         return BackupError("backup.host_unresolved", "The server name can't be resolved.", detail=_short(exc))
@@ -260,6 +284,10 @@ class _SmbRemote:
         self.t = t
         self.smb = _smbclient()
         self.base = "\\\\" + "\\".join([t.host, t.share, *segments(t.remote_dir)])
+        # Passed to every call: smbclient looks connections up by host:port,
+        # and without them a call would open its own, anonymous one on 445.
+        self.kw = dict(username=t.username or None, password=t.password or None, port=t.effective_port,
+                       encrypt=t.smb_encrypt, auth_protocol="ntlm", connection_timeout=TIMEOUT)
 
     def _path(self, name: str) -> str:
         return f"{self.base}\\{name}"
@@ -269,10 +297,8 @@ class _SmbRemote:
         t = self.t
         try:
             self.smb.ClientConfig(skip_dfs=True)  # no referral may send the credentials to another host
-            self.smb.register_session(t.host, username=t.username or None, password=t.password or None,
-                                      port=t.effective_port, encrypt=t.smb_encrypt, auth_protocol="ntlm",
-                                      connection_timeout=TIMEOUT)
-            self.smb.makedirs(self.base, exist_ok=True)
+            self.smb.register_session(t.host, **self.kw)
+            self.smb.makedirs(self.base, exist_ok=True, **self.kw)
         except BackupError:
             self._release()
             raise
@@ -295,29 +321,33 @@ class _SmbRemote:
     def upload(self, local: Path, name: str) -> None:
         tmp = self._path(f".{name}.part")
         try:
-            with open(local, "rb") as src, self.smb.open_file(tmp, mode="wb") as dst:
+            with open(local, "rb") as src, self.smb.open_file(tmp, mode="wb", **self.kw) as dst:
                 while chunk := src.read(1024 * 1024):
                     dst.write(chunk)
-            self.smb.rename(tmp, self._path(name))
-            size = self.smb.stat(self._path(name)).st_size
+            self.smb.rename(tmp, self._path(name), **self.kw)
+            size = self.smb.stat(self._path(name), **self.kw).st_size
         except Exception as exc:
+            try:
+                self.smb.remove(tmp, **self.kw)  # no half-written bundle left behind
+            except Exception:  # noqa: BLE001 — the connection may be gone
+                pass
             raise _smb_error(exc) from exc
         if size != local.stat().st_size:
             raise BackupError("backup.verify_failed", "The uploaded file has the wrong size.",
                               detail=f"{size} != {local.stat().st_size}")
 
     def list(self) -> list[str]:
-        return list(self.smb.listdir(self.base))
+        return list(self.smb.listdir(self.base, **self.kw))
 
     def delete(self, name: str) -> None:
-        self.smb.remove(self._path(name))
+        self.smb.remove(self._path(name), **self.kw)
 
     def probe(self) -> None:
         path = self._path(f".zonecast-probe-{os.urandom(4).hex()}.tmp")
         try:
-            with self.smb.open_file(path, mode="wb") as f:
+            with self.smb.open_file(path, mode="wb", **self.kw) as f:
                 f.write(b"zonecast")
-            self.smb.remove(path)
+            self.smb.remove(path, **self.kw)
         except Exception as exc:
             raise _smb_error(exc) from exc
 

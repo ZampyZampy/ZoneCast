@@ -9,6 +9,10 @@ swapping the SQLite file under a running app (open connections, maybe
 mid-write) risks corrupting it. Run it once, then start the app
 normally (docker compose up, or the systemd service — see deploy/).
 
+Goes through the same staging as the dashboard's import (a bundle from a
+newer ZoneCast is refused, the current data is copied aside first), then
+applies it at once, since the service is stopped.
+
 Usage:
     python -m app.tools.import_bundle /path/to/zonecast_export_*.zcbundle
     (prompts for the export password)
@@ -20,8 +24,8 @@ import argparse
 import getpass
 import sys
 
-from ..config import BASE_DIR, settings
-from ..services import bundle
+from ..config import settings
+from ..services import pending_import
 
 
 def main() -> int:
@@ -31,7 +35,8 @@ def main() -> int:
     parser.add_argument("--yes", action="store_true", help="Non chiedere conferma prima di sovrascrivere i dati esistenti")
     args = parser.parse_args()
 
-    data = open(args.bundle_file, "rb").read()
+    with open(args.bundle_file, "rb") as f:
+        data = f.read()
     password = args.password or getpass.getpass("Password dell'export: ")
 
     existing_db = settings.db_path.exists()
@@ -45,12 +50,13 @@ def main() -> int:
             return 1
 
     try:
-        extracted = bundle.extract_bundle(data=data, password=password, target_root=BASE_DIR)
-    except ValueError as exc:
+        pending_import.stage(data, password)
+        pending_import.apply_pending_import()
+    except (ValueError, OSError) as exc:
         print(f"Errore: {exc}", file=sys.stderr)
         return 1
 
-    print(f"Ripristinati {len(extracted)} file in {BASE_DIR}.")
+    print(f"Ripristino completato in {settings.db_path.parent.parent} (i dati precedenti sono stati copiati a parte, *.pre-import-*).")
     print("Ora puoi avviare l'app normalmente (docker compose up -d, oppure il servizio systemd).")
     return 0
 

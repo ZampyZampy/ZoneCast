@@ -336,7 +336,7 @@ def test_wrong_ftp_password_is_reported(admin_client, ftp_server):
 def fake_smb(tmp_path, monkeypatch):
     root = tmp_path / "smb"
     root.mkdir()
-    sessions = []
+    sessions, ports, fail = [], [], {}
 
     class LogonFailure(Exception):
         pass
@@ -346,21 +346,44 @@ def fake_smb(tmp_path, monkeypatch):
         assert parts[0] == "nas" and parts[1] == "backups"
         return root.joinpath(*parts[2:])
 
+    def op(fn):
+        """Every file operation must reuse the registered host:port session."""
+        def call(*args, **kw):
+            ports.append(kw.get("port"))
+            if fn.__name__ in fail:
+                raise fail.pop(fn.__name__)
+            return fn(*args, **{k: v for k, v in kw.items() if k == "mode"})
+        return call
+
+    def makedirs(path):
+        local(path).mkdir(parents=True, exist_ok=True)
+
+    def open_file(path, mode="rb"):
+        return open(local(path), mode)
+
+    def rename(src, dst):
+        local(src).rename(local(dst))
+
+    def stat(path):
+        return local(path).stat()
+
+    def listdir(path):
+        return [p.name for p in local(path).iterdir()]
+
+    def remove(path):
+        local(path).unlink()
+
     fake = types.SimpleNamespace(
         ClientConfig=lambda **kw: None,
         register_session=lambda host, username=None, password=None, **kw: (
-            sessions.append((host, username, kw.get("encrypt"))) if password == "smb-secret"
+            sessions.append((host, username, kw.get("encrypt"), kw.get("port"))) if password == "smb-secret"
             else (_ for _ in ()).throw(LogonFailure("bad credentials"))),
         delete_session=lambda host, port=445: None,
-        makedirs=lambda path, exist_ok=False: local(path).mkdir(parents=True, exist_ok=exist_ok),
-        open_file=lambda path, mode="rb": open(local(path), mode),
-        rename=lambda src, dst: local(src).rename(local(dst)),
-        stat=lambda path: local(path).stat(),
-        listdir=lambda path: [p.name for p in local(path).iterdir()],
-        remove=lambda path: local(path).unlink(),
+        makedirs=op(makedirs), open_file=op(open_file), rename=op(rename), stat=op(stat),
+        listdir=op(listdir), remove=op(remove),
     )
     monkeypatch.setitem(sys.modules, "smbclient", fake)
-    return types.SimpleNamespace(root=root, sessions=sessions)
+    return types.SimpleNamespace(root=root, sessions=sessions, ports=ports, fail=fail)
 
 
 def test_smb_upload_with_encryption(admin_client, in_process_build, fake_smb):
@@ -371,7 +394,7 @@ def test_smb_upload_with_encryption(admin_client, in_process_build, fake_smb):
     status = admin_client.get("/api/system/auto-backup").json()
     assert status["last_status"] == "ok", status
     assert (fake_smb.root / "zonecast" / status["last_file"]).exists()
-    assert fake_smb.sessions[-1] == ("nas", "DOMAIN\\zc", True)
+    assert fake_smb.sessions[-1] == ("nas", "DOMAIN\\zc", True, 445)
     bad = admin_client.post("/api/system/auto-backup/test", json={**body, "password": "nope"}).json()
     assert bad["ok"] is False and bad["code"] == "backup.auth_failed"
 
@@ -383,3 +406,166 @@ def test_retention_rules():
     doomed = auto_backup._retention(names, 2, current)
     assert current not in doomed and "zonecast-00000000-20260109T000000Z.zcbundle" not in doomed
     assert sorted(doomed) == sorted(names[1:3])
+
+
+# --- second review round -------------------------------------------------------
+
+def test_a_fresh_install_owns_its_backup_settings(admin_client):
+    status = admin_client.get("/api/system/auto-backup").json()
+    assert status["foreign"] is False
+    res = admin_client.post("/api/system/auto-backup/run")  # no password yet: said so, translated
+    assert res.status_code == 422 and res.json()["detail"]["code"] == "backup.bundle_password_required"
+
+
+def test_smb_on_another_port_uses_that_session_everywhere(admin_client, in_process_build, fake_smb):
+    body = _policy_body(destination="smb", host="nas", port=4445, share="backups", remote_dir="zonecast",
+                        username="zc", password="smb-secret")
+    admin_client.put("/api/system/auto-backup", json=body)
+    _run()
+    assert admin_client.get("/api/system/auto-backup").json()["last_status"] == "ok"
+    assert fake_smb.sessions[-1][3] == 4445 and fake_smb.ports and set(fake_smb.ports) == {4445}
+
+
+def test_smb_errors_after_login_are_told_apart(admin_client, fake_smb):
+    body = _policy_body(destination="smb", host="nas", share="backups", username="zc", password="smb-secret")
+
+    class SMBOSError(OSError):
+        def __init__(self, status):
+            super().__init__(f"status 0x{status:08x}")
+            self.ntstatus = status
+
+    fake_smb.fail["open_file"] = SMBOSError(0xC0000022)
+    assert admin_client.post("/api/system/auto-backup/test", json=body).json()["code"] == "backup.access_denied"
+    fake_smb.fail["makedirs"] = SMBOSError(0xC00000CC)
+    assert admin_client.post("/api/system/auto-backup/test", json=body).json()["code"] == "backup.share_not_found"
+    fake_smb.fail["open_file"] = SMBOSError(0xC000007F)  # disk full
+    assert admin_client.post("/api/system/auto-backup/test", json=body).json()["code"] == "backup.upload_failed"
+
+
+def test_an_interrupted_smb_upload_leaves_no_part_file(admin_client, in_process_build, fake_smb):
+    body = _policy_body(destination="smb", host="nas", share="backups", remote_dir="zonecast",
+                        username="zc", password="smb-secret")
+    admin_client.put("/api/system/auto-backup", json=body)
+    fake_smb.fail["rename"] = ConnectionResetError("link dropped")
+    _run()
+    assert admin_client.get("/api/system/auto-backup").json()["last_status"] == "failed"
+    assert list((fake_smb.root / "zonecast").iterdir()) == []
+
+
+def test_failed_uploads_do_not_pile_up_locally(admin_client, in_process_build, monkeypatch):
+    _clock(monkeypatch)
+    body = _policy_body(destination="ftp", allow_insecure_ftp=True, host="127.0.0.1", port=9,  # nothing listens
+                        username="zc", password="x", keep_local=0)
+    admin_client.put("/api/system/auto-backup", json=body)
+    for _ in range(3):
+        _run()
+    status = admin_client.get("/api/system/auto-backup").json()
+    assert status["last_status"] == "failed" and status["last_error_code"] == "backup.connect_failed"
+    assert len(admin_client.get("/api/system/auto-backup/files").json()) == 1  # only the newest unsent one
+
+
+def test_errors_without_technical_detail_are_not_repeated(admin_client, in_process_build):
+    admin_client.put("/api/system/auto-backup", json=_policy_body())
+    db = SessionLocal()
+    try:
+        db.get(BackupPolicy, 1).bundle_password_enc = None
+        db.commit()
+    finally:
+        db.close()
+    _run()
+    status = admin_client.get("/api/system/auto-backup").json()
+    assert status["last_error_code"] == "backup.bundle_password_required" and status["last_error"] is None
+
+
+def test_settings_changed_while_a_run_waits_apply_to_it(admin_client, in_process_build, monkeypatch):
+    admin_client.put("/api/system/auto-backup", json=_policy_body())
+    calls = []
+
+    def busy():
+        if not calls:  # during the wait, someone turns backups off
+            db = SessionLocal()
+            try:
+                db.get(BackupPolicy, 1).enabled = False
+                db.commit()
+            finally:
+                db.close()
+        calls.append(1)
+        return len(calls) < 2
+
+    monkeypatch.setattr(auto_backup, "_busy", busy)
+    monkeypatch.setattr(auto_backup, "POSTPONE_STEP_SECONDS", 0.01)
+    asyncio.run(auto_backup.run_backup("scheduled"))
+    assert admin_client.get("/api/system/auto-backup/files").json() == []
+
+
+def test_the_build_child_never_applies_a_staged_import(tmp_path, monkeypatch):
+    from app.services import pending_import
+
+    staging = pending_import.STAGING_DIR
+    (staging / "media").mkdir(parents=True)
+    (staging / "media" / "partial.wav").write_bytes(b"half")
+    out = auto_backup.backup_dir() / f"zonecast-{instance_id()[:8]}-20260101T000000Z.zcbundle"
+    try:
+        asyncio.run(auto_backup._build(out, PASSWORD, False, {}))
+        assert out.exists() and (staging / "media" / "partial.wav").exists()
+    finally:
+        import shutil
+        shutil.rmtree(staging, ignore_errors=True)
+        out.unlink(missing_ok=True)
+
+
+def test_a_build_that_takes_too_long_is_killed_without_blocking(admin_client, monkeypatch):
+    import time as _time
+    admin_client.put("/api/system/auto-backup", json=_policy_body())
+    monkeypatch.setattr(auto_backup, "BUILD_TIMEOUT_SECONDS", 0.05)
+    started = _time.monotonic()
+    _run()
+    assert _time.monotonic() - started < 10
+    status = admin_client.get("/api/system/auto-backup").json()
+    assert status["last_status"] == "failed" and status["last_error_code"] == "backup.build_failed"
+    assert admin_client.get("/api/system/auto-backup/files").json() == []
+
+
+def test_automatic_backups_restore_from_the_command_line(tmp_path, monkeypatch):
+    """The bundle's manifest.json must not be written into the (root-owned)
+    install directory, and a bundle from a newer version is refused."""
+    import sqlite3
+
+    from app.config import settings
+    from app.services import pending_import
+    from app.tools import import_bundle
+
+    src = tmp_path / "src.db"
+    con = sqlite3.connect(src)
+    con.execute("create table alembic_version (version_num varchar(32) not null)")
+    con.execute("insert into alembic_version values ('0005')")
+    con.commit()
+    con.close()
+    (tmp_path / "m").mkdir()
+    (tmp_path / "b").mkdir()
+    data = bundle.build_export(password=PASSWORD, db_path=src, secret_key_path=tmp_path / "none.key",
+                               media_dir=tmp_path / "m", backups_dir=tmp_path / "b", manifest={"include_media": True})
+    target = tmp_path / "install"
+    extracted = bundle.extract_bundle(data=data, password=PASSWORD, target_root=target)
+    assert "manifest.json" not in extracted and not (target / "manifest.json").exists()
+
+    site = tmp_path / "site"
+    (site / "data").mkdir(parents=True)
+    monkeypatch.setattr(settings, "database_url", f"sqlite:///{(site / 'data' / 'zonecast.db').as_posix()}")
+    monkeypatch.setattr(settings, "data_dir", site / "data")
+    monkeypatch.setattr(settings, "media_dir", site / "media")
+    monkeypatch.setattr(settings, "backups_dir", site / "backups")
+    monkeypatch.setattr(pending_import, "STAGING_DIR", site / "data" / "_pending_import")
+    bundle_file = tmp_path / "x.zcbundle"
+    bundle_file.write_bytes(data)
+    monkeypatch.setattr(sys, "argv", ["import_bundle", str(bundle_file), "--password", PASSWORD, "--yes"])
+    assert import_bundle.main() == 0
+    assert (site / "data" / "zonecast.db").exists()
+
+    con = sqlite3.connect(src)
+    con.execute("update alembic_version set version_num = '0999'")
+    con.commit()
+    con.close()
+    bundle_file.write_bytes(bundle.build_export(password=PASSWORD, db_path=src, secret_key_path=tmp_path / "none.key",
+                                                media_dir=tmp_path / "m", backups_dir=tmp_path / "b"))
+    assert import_bundle.main() == 1  # newer schema: refused, nothing replaced

@@ -20,6 +20,7 @@ Safety rules, since this runs unattended inside a PA controller:
     upload succeeded, and a retention problem is a warning, not a failure.
 """
 import asyncio
+import functools
 import logging
 import multiprocessing
 import re
@@ -68,7 +69,7 @@ def own_name(pattern_name: str) -> bool:
 def get_policy(db) -> BackupPolicy:
     policy = db.get(BackupPolicy, 1)
     if policy is None:
-        policy = BackupPolicy(id=1, time_of_day=time(2, 30))
+        policy = BackupPolicy(id=1, time_of_day=time(2, 30), instance_id=instance_id())
         db.add(policy)
         db.flush()
     return policy
@@ -168,28 +169,76 @@ def _manifest(policy) -> dict:
 
 
 async def _build(out: Path, password: str, include_media: bool, manifest: dict) -> None:
+    """Runs backup_worker.build in a child process. Submitted as a partial
+    of that function, so the child imports only backup_worker and bundle
+    — never app.database, whose import applies a staged import. On a
+    timeout or cancellation the child is killed rather than waited for:
+    waiting would block the event loop, bells included."""
     from . import backup_worker
 
     loop = asyncio.get_running_loop()
-    with ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn")) as pool:
-        future = loop.run_in_executor(pool, _call_build, backup_worker.build, str(out), dict(
-            password=password, db_path=str(settings.db_path), secret_key_path=str(settings.secret_key_path),
-            media_dir=str(settings.media_dir), backups_dir=str(settings.backups_dir),
-            include_media=include_media, manifest=manifest))
-        await asyncio.wait_for(future, timeout=BUILD_TIMEOUT_SECONDS)
+    pool = ProcessPoolExecutor(max_workers=1, mp_context=multiprocessing.get_context("spawn"))
+    try:
+        job = functools.partial(
+            backup_worker.build, str(out), password=password, db_path=str(settings.db_path),
+            secret_key_path=str(settings.secret_key_path), media_dir=str(settings.media_dir),
+            backups_dir=str(settings.backups_dir), include_media=include_media, manifest=manifest)
+        await asyncio.wait_for(loop.run_in_executor(pool, job), timeout=BUILD_TIMEOUT_SECONDS)
+    except BaseException:
+        for proc in list((getattr(pool, "_processes", None) or {}).values()):
+            try:
+                proc.kill()
+            except Exception:  # noqa: BLE001 — already gone
+                pass
+        for leftover in (out, out.with_name(f".{out.name}.tmp")):
+            try:
+                leftover.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
-def _call_build(fn, out, kwargs):
-    return fn(out, **kwargs)
-
-
-def _retention(files: list[str], keep: int, current: str) -> list[str]:
+def _retention(files: list[str], keep: int, current: Optional[str]) -> list[str]:
     """Which of our own files to delete: all but the newest `keep`, and
     never the one just written (a clock set back could make it sort
     first)."""
     ours = sorted((n for n in files if own_name(n)), reverse=True)
-    kept = set(ours[:keep]) | {current}
+    kept = set(ours[:keep]) | ({current} if current else set())
     return [n for n in ours if n not in kept]
+
+
+def _prune_local(keep: int, current: Optional[str]) -> list[str]:
+    """Local retention, plus half-written files a killed run left behind.
+    Returns warnings instead of raising: the backup itself is what matters."""
+    warnings = []
+    try:
+        for old in _retention([p.name for p in backup_dir().iterdir()], keep, current):
+            (backup_dir() / old).unlink(missing_ok=True)
+        stale = datetime.now().timestamp() - 24 * 3600
+        for leftover in backup_dir().glob(f".zonecast-{instance_id()[:8]}-*.tmp"):
+            if leftover.stat().st_mtime < stale:
+                leftover.unlink(missing_ok=True)
+    except OSError as exc:
+        warnings.append(f"local retention: {exc}"[:200])
+    return warnings
+
+
+def is_foreign(policy) -> bool:
+    """Saved on another installation (it came in with an imported
+    bundle). A policy never saved anywhere isn't foreign."""
+    return bool(policy.instance_id) and policy.instance_id != instance_id()
+
+
+def _load_policy() -> "_Snapshot":
+    db = SessionLocal()
+    try:
+        policy = get_policy(db)
+        db.commit()
+        return _Snapshot({c.name: getattr(policy, c.name) for c in BackupPolicy.__table__.columns})
+    finally:
+        db.close()
 
 
 def _record(**fields) -> None:
@@ -207,19 +256,14 @@ async def run_backup(trigger: str = "scheduled") -> None:
     """One backup run. Raises BackupError("backup.already_running") if
     another run holds the lock; any other failure is recorded on the
     policy (and logged), not raised."""
+    from .pending_import import has_pending
+
     if not _run_lock.acquire(blocking=False):
         raise BackupError("backup.already_running", "A backup is already running.")
     stage = "prepare"
     try:
-        db = SessionLocal()
-        try:
-            policy = get_policy(db)
-            db.commit()
-            snapshot = {c.name: getattr(policy, c.name) for c in BackupPolicy.__table__.columns}
-        finally:
-            db.close()
-        policy = _Snapshot(snapshot)
-        if policy.instance_id != instance_id():
+        policy = _load_policy()
+        if is_foreign(policy):
             logger.warning("Backup automatico in pausa: configurazione arrivata da un'altra installazione, va salvata di nuovo")
             _record(last_status="paused_foreign", last_run_at=utcnow(), last_error_code=None, last_error=None)
             return
@@ -230,11 +274,22 @@ async def run_backup(trigger: str = "scheduled") -> None:
                 waited += POSTPONE_STEP_SECONDS
             if waited:
                 logger.info("Backup automatico rimandato di %d s (audio in riproduzione o campanella imminente)", waited)
+                # settings saved during the wait (a new password, another
+                # destination, backups turned off) apply to this run too
+                policy = _load_policy()
+                if is_foreign(policy) or not policy.enabled:
+                    return
+        if has_pending():
+            logger.info("Backup automatico saltato: un import di configurazione è in corso")
+            return
 
         bundle_password = secret(policy.bundle_password_enc)
         if not bundle_password:
             raise BackupError("backup.bundle_password_required", "Set the password that protects the backups.")
         remote_password = secret(policy.password_enc) or ""
+        keep_local = max(policy.keep_local, 1 if policy.destination == "local" else 0)
+        # leftovers of earlier runs whose upload failed, before judging the space
+        warnings = _prune_local(max(keep_local, 1), None)
         _check_space(policy.include_media)
 
         stage = "build"
@@ -242,44 +297,47 @@ async def run_backup(trigger: str = "scheduled") -> None:
         out = backup_dir() / name
         try:
             await _build(out, bundle_password, policy.include_media, _manifest(policy))
-        except BackupError:
+        except (BackupError, asyncio.CancelledError):
             raise
+        except TimeoutError as exc:
+            raise BackupError("backup.build_failed", "The backup file couldn't be created.",
+                              detail=f"took longer than {BUILD_TIMEOUT_SECONDS // 60} minutes") from exc
         except Exception as exc:
             raise BackupError("backup.build_failed", "The backup file couldn't be created.",
                               detail=f"{type(exc).__name__}: {exc}"[:300]) from exc
 
-        warnings = []
         if policy.destination != "local":
             stage = "upload"
             target = target_of(policy, remote_password)
+            own_part = re.compile(rf"\.zonecast-{instance_id()[:8]}-\d{{8}}T\d{{6}}Z\.zcbundle\.part")
 
             def upload_and_prune():
                 with backup_remote.open_remote(target) as remote:
                     remote.upload(out, name)
                     try:
-                        for old in _retention(remote.list(), policy.keep_remote, name):
+                        listing = remote.list()
+                        for old in _retention(listing, policy.keep_remote, name):
                             remote.delete(old)
+                        for part in listing:  # interrupted uploads of earlier runs
+                            if own_part.fullmatch(part):
+                                remote.delete(part)
                     except Exception as exc:  # noqa: BLE001 — the backup itself is safe
                         warnings.append(f"remote retention: {type(exc).__name__}: {exc}"[:200])
 
-            await asyncio.to_thread(upload_and_prune)
+            try:
+                await asyncio.to_thread(upload_and_prune)
+            except Exception:
+                # keep this bundle (it isn't anywhere else) but not a pile of them
+                _prune_local(max(keep_local, 1), name)
+                raise
 
         stage = "retention"
-        keep_local = max(policy.keep_local, 1 if policy.destination == "local" else 0)
-        try:
-            local = [p.name for p in backup_dir().iterdir()]
-            doomed = _retention(local, keep_local, name)
-            if keep_local == 0:
-                doomed.append(name)  # copied to the remote and verified: no local copy wanted
-            for old in doomed:
-                (backup_dir() / old).unlink(missing_ok=True)
-            # half-written files left by a run that was killed
-            stale = datetime.now().timestamp() - 24 * 3600
-            for leftover in backup_dir().glob(f".zonecast-{instance_id()[:8]}-*.tmp"):
-                if leftover.stat().st_mtime < stale:
-                    leftover.unlink(missing_ok=True)
-        except OSError as exc:
-            warnings.append(f"local retention: {exc}"[:200])
+        warnings += _prune_local(keep_local, name)
+        if keep_local == 0:
+            try:
+                out.unlink(missing_ok=True)  # copied to the remote and verified: no local copy wanted
+            except OSError as exc:
+                warnings.append(f"local retention: {exc}"[:200])
 
         now = utcnow()
         _record(last_status="ok", last_run_at=now, last_success_at=now, last_stage=None, last_error_code=None,
@@ -289,8 +347,10 @@ async def run_backup(trigger: str = "scheduled") -> None:
         if exc.code == "backup.already_running":
             raise
         logger.error("Backup automatico non riuscito (%s): %s %s", stage, exc.code, exc.params.get("detail", ""))
+        # only technical detail: the message itself is shown translated from the code
+        detail = exc.params.get("detail")
         _record(last_status="failed", last_run_at=utcnow(), last_stage=stage, last_error_code=exc.code,
-                last_error=str(exc.params.get("detail") or exc)[:500])
+                last_error=str(detail)[:500] if detail else None)
     except Exception as exc:
         logger.exception("Backup automatico non riuscito (%s)", stage)
         _record(last_status="failed", last_run_at=utcnow(), last_stage=stage, last_error_code="backup.build_failed",
@@ -342,7 +402,7 @@ def register_job(startup: bool = False) -> None:
         engine.add_job(_scheduled_run, trigger=trigger, id=JOB_ID, replace_existing=True,
                        max_instances=1, coalesce=True, misfire_grace_time=3600)
         reference = policy.last_run_at or policy.updated_at
-        if startup and policy.instance_id == instance_id() and reference and utcnow() - reference > period(policy) + timedelta(hours=6):
+        if startup and not is_foreign(policy) and reference and utcnow() - reference > period(policy) + timedelta(hours=6):
             engine.add_job(_scheduled_run, trigger=DateTrigger(run_date=datetime.now(timezone.utc) + timedelta(minutes=2)),
                            id=CATCH_UP_JOB_ID, replace_existing=True)
             logger.info("Backup automatico: l'ultimo è stato saltato, ne eseguo uno tra 2 minuti")
@@ -363,7 +423,7 @@ def alerts(db) -> list[tuple[str, str, str, dict]]:
     policy = db.get(BackupPolicy, 1)
     if policy is None or not policy.enabled:
         return []
-    if policy.instance_id != instance_id():
+    if is_foreign(policy):
         return [("warning", "backup_paused_foreign",
                  "Automatic backups are paused: their settings came from another installation. Save them again in System.", {})]
     out = []
