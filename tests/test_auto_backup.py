@@ -257,10 +257,15 @@ def _self_signed(tmp_path):
 
 @pytest.fixture()
 def ftp_server(tmp_path):
-    pytest.importorskip("pyftpdlib")
-    from pyftpdlib.authorizers import DummyAuthorizer
-    from pyftpdlib.handlers import FTPHandler, TLS_FTPHandler
-    from pyftpdlib.servers import FTPServer
+    import warnings
+
+    # on Python 3.11 pyftpdlib still imports the deprecated asyncore/asynchat
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", DeprecationWarning)
+        pytest.importorskip("pyftpdlib")
+        from pyftpdlib.authorizers import DummyAuthorizer
+        from pyftpdlib.handlers import FTPHandler, TLS_FTPHandler
+        from pyftpdlib.servers import FTPServer
 
     servers = []
 
