@@ -118,6 +118,5 @@ echo
 echo "Per ripristinare un export completo da un'altra installazione (vedi Impostazioni > Esporta configurazione),"
 echo "fallo PRIMA di 'systemctl start zonecast', con il servizio fermo:"
 echo "  sudo systemctl stop zonecast"
-echo "  sudo -u $SERVICE_USER $INSTALL_DIR/venv/bin/python -m app.tools.import_bundle /percorso/export.zcbundle"
-echo "  (eseguito da $INSTALL_DIR)"
+echo "  sudo -u $SERVICE_USER sh -c 'cd $INSTALL_DIR && venv/bin/python -m app.tools.import_bundle /percorso/export.zcbundle'"
 echo "  sudo systemctl start zonecast"

@@ -12,22 +12,35 @@ Web application for managing a PA/intercom sound system built on IP
 speakers, designed to stay brand-agnostic — a dropdown with the most
 common multicast-paging brands (Fanvil, Algo, CyberData, Grandstream,
 Axis, Tiptel, Akuvox) plus a free-text "Other" option. Lets you
-register speakers, group them into zones, upload audio files, play
-them on demand, and schedule them over time with a per-country holiday
-calendar.
+register speakers, group them into zones (a speaker can be in several),
+upload audio files, play them on demand, and schedule them over time
+with per-country holidays and your own custom dates — without two
+schedules ever playing on the same speaker at once.
 
 <p align="center">
-  <img src="docs/readme/tour.gif" alt="ZoneCast tour: sign in, play an audio file to a zone, browse speakers, zones, schedules and media, then switch to the dark theme and to Italian and Japanese" width="100%">
+  <img src="docs/readme/tour.gif" alt="ZoneCast tour: sign in, play an audio file to a zone, browse speakers, a zone's members, schedules and custom dates, media and the automatic backup, then switch to the dark theme and to Italian and Japanese" width="100%">
 </p>
-<p align="center"><sub>Sign in → play a file to a zone → speakers, zones, schedules, media → dark theme → Italian / Japanese · <a href="docs/readme/tour.mp4">MP4 version</a></sub></p>
+<p align="center"><sub>Sign in → play a file to a zone → speakers → a zone's members → schedules and custom dates → media → automatic backup → dark theme → Italian / Japanese</sub></p>
 
 ## Key features
 
 - **Multicast RTP playback** to zones, single speakers, or the whole
-  fleet, with a playback history.
+  fleet, with a playback history. Starting an announcement on speakers
+  that are already playing asks first: stop what's playing, play
+  alongside, or cancel.
+- **Zones managed from the dashboard**: a speaker can belong to
+  several zones, members are picked from a searchable list in the
+  Zones tab, and supported devices are reconfigured automatically
+  (with an "out of sync" badge if a device didn't take the change).
 - **Recurring schedules** with a per-country holiday calendar (Italy,
   United States, United Kingdom, France, Germany, Spain, Japan, China)
-  — exclude holidays, always include them, or play only on holidays.
+  — exclude holidays, always include them, or play only on holidays —
+  and **custom dates** (closures, exam days, yearly dates) a schedule
+  can skip or be limited to.
+- **No overlapping schedules**: saving a schedule that would play on
+  the same speaker at the same time as another one is refused, naming
+  the schedule in the way; a bell due during a live announcement waits
+  for it to end instead of cutting in.
 - **Automatic audio analysis** of uploaded files, with a warning when
   bass is dominant (not ideal for PA horns) and a suggested gain
   amplification when there's headroom before clipping.
@@ -39,30 +52,36 @@ calendar.
   managing speakers/zones/media/schedules).
 - **Optional per-user 2FA** (TOTP + recovery codes), **full
   export/import** of the installation (database, media, device
-  backups, encryption key) for migrating between machines.
+  backups, encryption key) for migrating between machines, and
+  **automatic backups** on a daily or weekly schedule, kept on the
+  server and optionally copied to an FTPS/FTP server or an SMB share.
 - **System panel** (admin only): network (IP/DNS/gateway with a trial
   period), time/NTP, host resource monitoring (disk/RAM/CPU),
   changelog and version number.
 - **Multilingual interface** (English, Italian, Chinese, Japanese,
   German, Spanish, French) with light/dark/automatic theme (based on
-  real sunrise/sunset), chosen independently by each user.
+  real sunrise/sunset), chosen independently by each user. The
+  dashboard loads nothing from the internet (it works on an isolated
+  LAN) and runs under a strict Content Security Policy.
 
 ## Screenshots
 
-| Live playback and history | Speakers |
+| Live playback and history | Speakers already playing? It asks first |
 |:---:|:---:|
-| <img src="docs/readme/play.png" alt="Play tab: pick an audio file and a destination, with the playback history alongside"> | <img src="docs/readme/speakers.png" alt="Speakers list with online/offline status, zone, multicast group and brand/model"> |
-| **Zones** | **Schedules** |
-| <img src="docs/readme/zones.png" alt="Zones list with description, multicast group and speaker count"> | <img src="docs/readme/schedules.png" alt="Schedules list with destination, time, days of the week and holiday rule"> |
-| **Media and audio analysis** | **Schedule editor with holiday calendars** |
-| <img src="docs/readme/media.png" alt="Media library with per-file bass/mid/treble analysis and suggested gain"> | <img src="docs/readme/schedule_modal.png" alt="Schedule editor: time, days, optional date range, holiday handling and holiday calendar country"> |
-| **System panel** | **Dark theme** |
-| <img src="docs/readme/system.png" alt="System panel: network, server time and NTP, host resources"> | <img src="docs/readme/dark_play.png" alt="Play tab in the dark theme"> |
+| <img src="docs/readme/play.png" alt="Play tab: pick an audio file and a destination, with the playback history alongside"> | <img src="docs/readme/live_conflict.png" alt="Dialog listing the announcement already playing on some of the chosen speakers, with Cancel, Play alongside and Stop them and play"> |
+| **Speakers** | **Zones** |
+| <img src="docs/readme/speakers.png" alt="Speakers list with online/offline status, their zones, a Not in sync badge, multicast group and brand/model"> | <img src="docs/readme/zones.png" alt="Zones list with description, multicast group and members"> |
+| **A zone's members** | **Schedules and custom dates** |
+| <img src="docs/readme/zone_members.png" alt="Zone form with a searchable checklist of member speakers, showing how many other zones each one is in"> | <img src="docs/readme/schedules.png" alt="Schedules list with destination, time, days, holiday and custom-dates rules, and the custom dates lists below"> |
+| **Schedule editor** | **Media and audio analysis** |
+| <img src="docs/readme/schedule_modal.png" alt="Schedule editor: time, days, optional date range, holiday handling, holiday calendar country and custom dates"> | <img src="docs/readme/media.png" alt="Media library with per-file bass/mid/treble analysis and suggested gain"> |
+| **Automatic backup** | **Dark theme** |
+| <img src="docs/readme/system.png" alt="Automatic backup settings: schedule, retention, backup password, SMB network share destination and status"> | <img src="docs/readme/dark_play.png" alt="Play tab in the dark theme"> |
 
 ### Creating a schedule
 
 <p align="center">
-  <img src="docs/readme/schedule.gif" alt="Creating a schedule: name, audio file, destination zone, time, days of the week, holiday handling and calendar, then save" width="100%">
+  <img src="docs/readme/schedule.gif" alt="Creating a schedule: name, audio file, destination zone, time, holidays and custom dates; saving is refused because another schedule plays on a shared speaker at that time, the time is changed and the schedule saved" width="100%">
 </p>
 
 ### On mobile
@@ -72,9 +91,9 @@ The whole dashboard works from a phone: the sidebar becomes a drawer
 scroll sideways when needed, and action buttons shrink to icons.
 
 <p align="center">
-  <img src="docs/readme/mobile.gif" alt="ZoneCast on a phone: play a file to a zone, swipe the history to see its status, open the drawer, go to Speakers, switch to the dark theme, open Schedules" width="262">
+  <img src="docs/readme/mobile.gif" alt="ZoneCast on a phone: play tab, the drawer, the Zones tab and a zone's member list, schedules, speakers, and the dark theme" width="262">
   &nbsp;&nbsp;
-  <img src="docs/readme/mobile.png" alt="ZoneCast on a phone: play tab, sidebar drawer, schedules list, speakers list, schedule editor and the dark theme" width="404">
+  <img src="docs/readme/mobile.png" alt="ZoneCast on a phone: play tab, sidebar drawer, a zone's member list, schedules and custom dates, speakers, and the dark theme" width="404">
 </p>
 
 ## 1. Architecture
@@ -132,24 +151,22 @@ audio into 20ms G.711 frames, builds the RTP header
 
 **Targeting model**: every *Speaker* has its own dedicated multicast
 group (for "play to this single speaker"), every *Zone* has its own
-group shared by its speakers, and there's a global "all-call" group
-every speaker is subscribed to. Playing a file is therefore always the
+group shared by its member speakers (a speaker in several zones
+listens to each of their groups), and there's a global "all-call"
+group every speaker is subscribed to. Playing a file is therefore always the
 exact same server-side operation: one RTP stream to one multicast
 address — the only thing that differs is which devices are, on their
 own web UI, listening on that address.
 
-**HTTP CGI fallback**: `app/services/fanvil_http.py` exposes a
-best-effort client for Fanvil's remote-control CGI (protected by
-Digest Auth with the same credentials as the device's web admin), used
-for extensions like reachability checks, or to invoke specific actions
-once the exact CGI syntax has been verified for your firmware with
-Fanvil support (it varies across product families and isn't
-documented publicly in a consistent way) — the endpoint is
-deliberately configurable rather than hard-coded, so as not to promise
-an unverified syntax. It isn't needed for actual audio playback: the
-multicast path handles that. Automatic CGI-based provisioning is
-currently implemented for Fanvil only — other brands are configured
-manually on the device (see "Initial setup" below).
+**Device drivers**: automatic configuration is done by per-brand
+drivers (`app/services/drivers/`). The Fanvil driver
+(`fanvil_http.py`) writes the multicast paging list through the same
+web form the device's own UI uses (session login, `mcast.htm`) and
+reads it back to verify — confirmed on a Fanvil A233. Other brands are
+configured manually on the device (see "Initial setup" below); adding
+a driver for another brand doesn't touch the rest of the app. The
+driver isn't involved in playback itself: the multicast path handles
+that.
 
 **SIP paging as an alternative**: this is an architecturally valid
 option (originate a call to the speaker's SIP extension, which
@@ -163,23 +180,25 @@ doesn't support multicast.
 
 ## 2. Automatic speaker provisioning and software-managed zones
 
-Zone membership is **entirely managed from the ZoneCast dashboard**
-(assigning/changing a speaker's zone, or changing a zone's multicast
-address): on brands with automatic provisioning support (see below)
-you no longer need to open the device's own web UI to manually
-add/remove entries from its multicast paging list on every change.
+Zone membership is **entirely managed from the ZoneCast dashboard**:
+open a zone in the Zones tab and tick its member speakers (a searchable
+list; a speaker can be in several zones). On brands with automatic
+provisioning support (see below) you never need to open the device's
+own web UI to edit its multicast paging list.
 
-**How it works**: every speaker must always be listening on three
-multicast groups — its own (single-speaker targeting), the one for
-its assigned zone (if any), and the global "all-call" one (shared by
-everyone). When you change a speaker's zone, or a zone's address, in
-the dashboard, the backend (`app/services/multicast_provisioning.py`)
-recomputes this list and writes it **in the background, immediately**,
-to the device — writing only the individual
-`paging.multicast_addr.N` / `paging.multicast_label.N` /
-`paging.multicast_priority.N` parameters via CGI
-(`app/services/fanvil_http.py`), using the admin credentials already
-stored on the speaker's record.
+**How it works**: every speaker listens on its own group
+(single-speaker targeting), one group per zone it belongs to, and the
+global "all-call" group — in that slot order, zones in a stable order
+that doesn't change when a zone is renamed. When a zone's members,
+address or name change, or a speaker's own group, the backend
+(`app/services/multicast_provisioning.py`) recomputes the list and
+writes it **in the background** to the affected devices only, one
+request at a time per device (a Fanvil doesn't cope with concurrent
+requests) and always ending with the latest list. A Fanvil has 20
+paging slots, so a speaker can be in up to 18 zones. If a device
+doesn't accept its new list (offline, wrong credentials), the Speakers
+tab marks it **Not in sync**, a login alert says so, and the list is
+pushed again as soon as the device answers.
 
 **Why not a full resync/reconfiguration**: a resync would make the
 device re-request its entire configuration file, and any setting not
@@ -197,10 +216,10 @@ already handling SIP stays intact.
   applying.
 - **Apply now**: forces an immediate (re)write, useful after a device
   reset or if a field change was reverted manually.
-- The automatic background push only fires when fields affecting the
-  paging list change (assigned zone, or the speaker's/zone's own
-  multicast address/port) — changes to name, location, credentials,
-  etc. don't trigger unnecessary device writes.
+- The automatic background push only fires when something the device
+  stores changes (zone members, a zone's or speaker's multicast
+  address/port or name, the paging volume, or how to reach the device)
+  — other edits don't trigger unnecessary device writes.
 
 **Initial per-speaker setup** (one-time, from the device's own web
 UI):
@@ -212,19 +231,16 @@ UI):
    ZoneCast — these are the ones used for the CGI write channel (on
    brands with automatic provisioning support).
 3. Do a first **Apply now** from the dashboard and check on the
-   device's own web UI that the three entries appear correctly.
+   device's own web UI that the entries appear correctly.
 
-> ⚠️ **Verify before using in production**: the exact write-parameter
-> CGI syntax (`ConfigManApp.com?key=...&value=...` in
-> `fanvil_http.py`) isn't documented publicly in a consistent way and
-> varies across firmware families — it's a plausible starting point,
-> not a certainty. Before applying it to your whole fleet: export/save
-> the configuration of ONE non-critical device from its web UI, test
-> "Apply now" on it, and compare the exported configuration
-> before/after to make sure only the paging entries changed. If the
-> syntax doesn't match your firmware, the push fails harmlessly (a 502
-> in the dashboard, no write happens) and you can always configure it
-> manually as a fallback (see the addresses shown in "Preview").
+> ⚠️ **Verify on your firmware first**: the Fanvil write path was
+> verified on an A233 (firmware 2.12.58.24). Before applying it to a
+> whole fleet of another model or firmware: back up the configuration
+> of ONE non-critical device (the **Backup** button), test "Apply now"
+> on it, and compare the configuration before/after to make sure only
+> the paging entries changed. A push that doesn't take is reported
+> (and the device marked "Not in sync"), and you can always configure
+> the device by hand from the addresses shown in "Preview".
 
 > Network note: multicast addresses (`239.0.0.0/8`, the
 > "administratively scoped" range) need to be reachable between the
@@ -238,35 +254,46 @@ UI):
 |---------------------|---------|
 | `users`             | Dashboard login accounts (`admin`/`operator` roles) |
 | `zones`             | Logical groupings of speakers, each with its own multicast group |
-| `speakers`          | Speaker records: IP, web credentials, zone, dedicated multicast group, status |
+| `speakers`          | Speaker records: IP, web credentials, dedicated multicast group, status, outcome of the last device push |
+| `zone_members`      | Which speakers belong to which zones (a speaker can be in several) |
 | `media`             | Uploaded audio files (original + pre-converted PCM 8kHz version for streaming) |
 | `schedules`         | Scheduling rules: media, target, time, days, date range, holiday rule, holiday calendar country |
+| `custom_calendars`, `custom_calendar_dates` | Named lists of dates/ranges (optionally yearly) |
+| `schedule_calendars` | Which custom-dates lists a schedule skips or is limited to |
 | `playback_logs`     | History of playbacks (manual and scheduled), with status and any errors |
+| `backup_policy`     | Automatic backup settings (credentials encrypted) and the outcome of the last run |
+| `app_settings`, `event_logs`, `speaker_config_backups` | Theme/timezone/log retention, the event log, device configuration backups |
 
 See `app/models.py` for field-level details.
 
 ### Schema migrations (Alembic)
 
-Schema changes are managed with Alembic instead of by hand:
+The schema is brought up to date **automatically at every start**
+(`app/migrate.py`), in a single transaction, before anything else opens
+the database — on the native install, on Docker and after importing a
+bundle from an older version. Installations from before Alembic are
+recognised and upgraded too. Before any upgrade the database is copied
+next to itself (`zonecast.db.pre-upgrade-<revision>-<time>`, the
+newest three are kept), so a release can be rolled back. A bundle
+exported by a newer version is refused at import instead of breaking
+the next start: upgrade every installation before moving bundles
+between them.
+
+For development (see [CONTRIBUTING.md](CONTRIBUTING.md)):
 
 ```bash
 alembic revision --autogenerate -m "describe the change"
-alembic upgrade head
+alembic check
 ```
-
-`render_as_batch` is enabled in the included `env.py`, so even changes
-SQLite doesn't support directly (e.g. changing a column's type or
-nullability) are handled automatically via the "recreate the table and
-copy the data" technique — no more manual scripts for these
-operations. On an existing installation not yet tracked by Alembic,
-align it once, without running anything, with `alembic stamp head`.
 
 ## 4. Running locally (without Docker)
 
-Requires Python 3.11+ (also tested on 3.13/3.14 — the `audioop-lts`
+Requires Python 3.11+ (tested on 3.11 to 3.14 — the `audioop-lts`
 backport in `requirements.txt` covers `audioop`'s removal from the
 stdlib starting with Python 3.13) and **ffmpeg** on the PATH (used to
 convert uploads to PCM 8kHz mono for G.711 streaming).
+`requirements.txt` pins every package with its hash; for tests and
+tools use `requirements-dev.txt` (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ```bash
 python -m venv .venv
@@ -362,8 +389,7 @@ service's first start:
 
 ```bash
 sudo systemctl stop zonecast   # if already started by the installer
-cd /opt/zonecast
-sudo -u zonecast venv/bin/python -m app.tools.import_bundle /path/to/export.zcbundle
+sudo -u zonecast sh -c 'cd /opt/zonecast && venv/bin/python -m app.tools.import_bundle /path/to/export.zcbundle'
 sudo systemctl start zonecast
 ```
 
@@ -372,10 +398,32 @@ sudo systemctl start zonecast
 - Audio files are converted on upload into a 16-bit PCM 8kHz mono copy
   (`media/<id>.pcm8k.wav`), the format required for G.711/RTP encoding
   — the original is still kept too.
-- The scheduler (APScheduler, `Europe/Rome` timezone by default)
-  reloads jobs on startup and updates them on every change via the
-  API; each job, when it fires, also checks the holiday rule and any
-  date range, so nothing needs recomputing when you edit a schedule.
+- The scheduler (APScheduler, `Europe/Rome` timezone by default, or
+  the one chosen in System) reloads jobs on startup and updates them
+  on every change via the API; each job, when it fires, also checks the
+  date range, the holiday rule and the custom dates, so nothing needs
+  recomputing when you edit a schedule.
+- **Overlaps**: a schedule runs from its start time to the end of its
+  audio file. Saving one that would overlap another enabled schedule
+  on any shared speaker (directly, through a zone, or via "all") is
+  refused; the check looks two years ahead, day by day, with the same
+  rules the scheduler uses. Overlaps that already existed don't block
+  unrelated edits (a rename), and overlaps created later by zone
+  members or custom dates are reported and flagged in the list.
+- **Live announcements vs schedules**: a live announcement always
+  wins. A bell due while it plays on some of the same speakers waits
+  for it to end (up to 60 s) and then plays; if it has to wait longer
+  it's recorded as failed in the history (and in the login alert).
+- **Automatic backups** (System tab, admin only) are the same
+  encrypted bundle as the manual export, built in a low-priority child
+  process, never while audio plays or a bell is about to ring. They are
+  kept in `data/auto_backups/` and can also be copied to an FTPS server
+  (the certificate must be trusted, or its fingerprint pinned), plain
+  FTP (only after explicit consent) or an SMB2/3 share (encrypted by
+  default). Retention only ever deletes this installation's own files.
+  Restore one with System > Import configuration, using the backup
+  password — keep it safe: without it no backup can be opened. A
+  failed or overdue backup raises a login alert.
 - Adding a new speaker brand in the future only requires: provisioning
   the multicast group on the device (if it supports standard
   multicast paging) + registering it in the dashboard — no backend
@@ -404,9 +452,9 @@ sudo systemctl start zonecast
   [Italiano](docs/ZoneCast_Manuale_Utente_it.pdf).
 - [`docs/zonecast_install_kit.tar.gz`](docs/zonecast_install_kit.tar.gz)
   — ready-to-use package for a native install on a machine without
-  direct access to this repository (contains `app/`, `deploy/`,
-  `requirements.txt`, `Dockerfile`, `docker-compose.yml`,
-  `.env.example`, `README.md`).
+  direct access to this repository (contains `app/`, `migrations/`,
+  `alembic.ini`, `deploy/`, `requirements.txt`, `Dockerfile`,
+  `docker-compose.yml`, `.env.example`, `README.md`).
 
 ## License
 
