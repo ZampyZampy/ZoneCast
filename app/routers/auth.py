@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..errors import AppError
 from ..deps import get_current_user, require_admin
-from ..models import User
+from ..models import User, UserRole
 from ..schemas import (
     LoginRequest, LoginResult, TwoFactorLoginRequest, UserOut, UserCreate, UserUpdate,
     ChangePasswordRequest, TwoFactorSetupOut, TwoFactorConfirmRequest, TwoFactorConfirmOut,
@@ -215,7 +215,11 @@ def update_user(user_id: int, payload: UserUpdate, db: Session = Depends(get_db)
         raise AppError(404, "users.not_found", "User not found.")
     if payload.full_name is not None:
         user.full_name = payload.full_name
-    if payload.role is not None:
+    if payload.role is not None and payload.role != user.role:
+        # Undeletable is not enough for "always a way back in": demoted,
+        # the default admin could no longer reach Users to fix things.
+        if user.is_protected and payload.role != UserRole.admin:
+            raise AppError(400, "users.cannot_demote_default", "The default admin account must stay an administrator.")
         user.role = payload.role
     if payload.new_password:
         _check_password_strength(payload.new_password)

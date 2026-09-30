@@ -4,7 +4,7 @@ APP_VERSION and add a CHANGELOG entry whenever a user-visible change
 ships — this is the only place either needs updating.
 """
 
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.6.1"
 
 # Newest first. Each entry: version, date (YYYY-MM-DD), list of
 # one-line change descriptions. English, matching the UI's default
@@ -12,6 +12,14 @@ APP_VERSION = "1.6.0"
 # through app/static/js/i18n.js, so non-English viewers see it in
 # English regardless of their selected language.
 CHANGELOG = [
+    {
+        "version": "1.6.1",
+        "date": "2026-09-30",
+        "changes": [
+            "The default admin account can no longer be changed to Operator, so there is always an administrator who can sign in and reach Users and System",
+            "After too many failed sign-ins, \"try again in N seconds\" now shows the real remaining wait instead of up to 5 minutes more than needed",
+        ],
+    },
     {
         "version": "1.6.0",
         "date": "2026-09-28",

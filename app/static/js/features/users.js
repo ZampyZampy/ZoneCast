@@ -23,6 +23,11 @@ function edit(id) {
     $('user-edit-username').value = u.username;
     $('user-edit-fullname').value = u.full_name || '';
     $('user-edit-role').value = u.role;
+    // An already-demoted default admin (possible before 1.6.1) stays
+    // editable, so it can be made an administrator again.
+    const roleLocked = u.is_protected && u.role === 'admin';
+    $('user-edit-role').disabled = roleLocked;
+    $('user-edit-role-locked').classList.toggle('d-none', !roleLocked);
     $('user-edit-password').value = '';
     modal('user-edit-modal').show();
 }

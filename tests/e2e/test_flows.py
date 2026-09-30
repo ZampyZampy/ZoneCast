@@ -125,8 +125,21 @@ def test_user_create_edit_delete(page, server):
     row = _row(page, "users-body", username)
     row.wait_for()
     assert "Operator" in row.inner_text()
+
+    # The default admin's role is locked (it must stay an administrator)...
+    default_row = page.locator("#users-body tr", has=page.locator(".badge", has_text="default"))
+    default_row.locator("[data-action=edit]").click()
+    page.wait_for_selector("#user-edit-modal.show")
+    expect(page.locator("#user-edit-role")).to_be_disabled()
+    expect(page.locator("#user-edit-role-locked")).to_be_visible()
+    page.click("#user-edit-modal .btn-close")
+    page.wait_for_selector("#user-edit-modal", state="hidden")
+
+    # ...while any other user's stays editable in the same dialog.
     row.locator("[data-action=edit]").click()
     page.wait_for_selector("#user-edit-modal.show")
+    expect(page.locator("#user-edit-role")).to_be_enabled()
+    expect(page.locator("#user-edit-role-locked")).to_be_hidden()
     page.select_option("#user-edit-role", "admin")
     page.click("#user-edit-modal button[type=submit]")
     page.wait_for_selector(f"#users-body tr:has-text('{username}'):has-text('Administrator')")
