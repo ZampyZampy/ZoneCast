@@ -70,6 +70,26 @@ settings.media_dir.mkdir(parents=True, exist_ok=True)
 settings.backups_dir.mkdir(parents=True, exist_ok=True)
 settings.data_dir.mkdir(parents=True, exist_ok=True)
 
+
+def require_writable_dirs() -> None:
+    """Stops the start with the fix spelled out, instead of SQLite's bare
+    "unable to open database file" later. The usual cause: Docker created
+    the bind-mounted data/, media/ or backups/ folders as root, while the
+    app runs as an unprivileged user (uid 1000 in the image)."""
+    import os
+    import tempfile
+    for folder in dict.fromkeys((settings.data_dir, settings.db_path.parent, settings.media_dir, settings.backups_dir)):
+        try:
+            with tempfile.TemporaryFile(dir=folder):
+                pass
+        except OSError as exc:
+            uid = os.getuid() if hasattr(os, "getuid") else "?"
+            raise RuntimeError(
+                f"{folder} is not writable by the user ZoneCast runs as (uid {uid}): {exc.strerror}. "
+                "With Docker, give the folders to that user on the host, next to docker-compose.yml: "
+                "sudo chown -R 1000:1000 data media backups"
+            ) from exc
+
 # Values shipped in the code / .env.example — anyone can read them, so a
 # session cookie signed with one of them can be forged at will.
 _PLACEHOLDER_SECRET_KEYS = {"", "change-me-in-production", "replace-with-a-long-random-string"}

@@ -9,9 +9,11 @@ AppArmor profile anyway:
 
 - Status is read via `timedatectl show` when available (native —
   reflects NTP on/off, sync state, timezone, all in one call). If that
-  fails (no D-Bus access, e.g. Docker), falls back to the older
-  file-based approach: `date` for the clock, the synced marker file
-  systemd-timesyncd writes, and timesyncd.conf for configured servers.
+  fails (no D-Bus access, e.g. Docker), `date` gives the clock and the
+  kernel itself says whether the host's NTP daemon keeps it in sync
+  (see _kernel_clock_synchronized) — whichever daemon that is, with
+  nothing from the host mounted into the container. The servers are
+  then the host's business: none are listed.
 - Manual time set always uses `date -s` via CAP_SYS_TIME (a plain
   kernel syscall, not D-Bus) — works the same in both deployments. If
   NTP sync is currently on and controllable, it's switched off first:
@@ -27,6 +29,8 @@ AppArmor profile anyway:
   and sync status, but the configured-servers list doesn't come from
   one place — see `_read_ntp_servers` below.
 """
+import ctypes
+import ctypes.util
 import re
 import subprocess
 from dataclasses import dataclass
@@ -132,6 +136,40 @@ def _read_ntp_servers() -> list[str]:
     return []
 
 
+class _Timex(ctypes.Structure):
+    """struct timex from <sys/timex.h> (what adjtimex(2) fills in)."""
+    _fields_ = [
+        ("modes", ctypes.c_uint), ("offset", ctypes.c_long), ("freq", ctypes.c_long),
+        ("maxerror", ctypes.c_long), ("esterror", ctypes.c_long), ("status", ctypes.c_int),
+        ("constant", ctypes.c_long), ("precision", ctypes.c_long), ("tolerance", ctypes.c_long),
+        ("time_sec", ctypes.c_long), ("time_usec", ctypes.c_long), ("tick", ctypes.c_long),
+        ("ppsfreq", ctypes.c_long), ("jitter", ctypes.c_long), ("shift", ctypes.c_int),
+        ("stabil", ctypes.c_long), ("jitcnt", ctypes.c_long), ("calcnt", ctypes.c_long),
+        ("errcnt", ctypes.c_long), ("stbcnt", ctypes.c_long), ("tai", ctypes.c_int),
+        ("_reserved", ctypes.c_int * 11),
+    ]
+
+
+def _kernel_clock_synchronized() -> bool | None:
+    """Whether an NTP daemon keeps the (host's) kernel clock in sync —
+    what `timedatectl` reports as NTPSynchronized, asked of the kernel
+    directly: adjtimex(2) with no mode bits only reads, needs no
+    privilege and is allowed by Docker's default seccomp profile. Right
+    for chrony (Ubuntu 26.04) and systemd-timesyncd alike, unlike the
+    marker file timesyncd alone writes. None where there is no such
+    call (not Linux)."""
+    try:
+        libc = ctypes.CDLL(ctypes.util.find_library("c") or "libc.so.6", use_errno=True)
+        tx = _Timex()
+        if libc.adjtimex(ctypes.byref(tx)) < 0:
+            return None
+    except (OSError, AttributeError):
+        return None
+    # systemd's own test: maximum error under 16 s. STA_UNSYNC isn't
+    # used, some setups keep it set to stop the kernel writing the RTC.
+    return tx.maxerror < 16_000_000
+
+
 def _timedatectl_show() -> dict[str, str] | None:
     try:
         result = subprocess.run(["timedatectl", "show", "--no-pager"], capture_output=True, text=True, timeout=10)
@@ -160,10 +198,11 @@ def get_status() -> TimeStatus:
         )
 
     tz_result = _run(["date", "+%Z"])
+    kernel_synced = _kernel_clock_synchronized()
     return TimeStatus(
         local_time=local_time,
         timezone=tz_result.stdout.strip() if tz_result.returncode == 0 else "?",
-        ntp_synchronized=SYNCHRONIZED_MARKER.exists(),
+        ntp_synchronized=kernel_synced if kernel_synced is not None else SYNCHRONIZED_MARKER.exists(),
         ntp_servers=_read_ntp_servers(),
         ntp_enabled=None,
         controllable=False,

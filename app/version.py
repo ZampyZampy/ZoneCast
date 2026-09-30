@@ -4,7 +4,7 @@ APP_VERSION and add a CHANGELOG entry whenever a user-visible change
 ships — this is the only place either needs updating.
 """
 
-APP_VERSION = "1.6.2"
+APP_VERSION = "1.6.3"
 
 # Newest first. Each entry: version, date (YYYY-MM-DD), list of
 # one-line change descriptions. English, matching the UI's default
@@ -12,6 +12,15 @@ APP_VERSION = "1.6.2"
 # through app/static/js/i18n.js, so non-English viewers see it in
 # English regardless of their selected language.
 CHANGELOG = [
+    {
+        "version": "1.6.3",
+        "date": "2026-09-30",
+        "changes": [
+            "Docker: the System tab shows whether the host keeps the clock in sync, read from the kernel, so it is right with chrony (Ubuntu 26.04) as well as systemd-timesyncd; docker-compose.yml no longer mounts host time files, which on a chrony host made Docker create an empty folder in their place",
+            "Docker: the NTP server field and the timezone warning are hidden there, since both are managed on the host",
+            "If the data, media or backups folder isn't writable (typically created by Docker as root), ZoneCast stops at startup with the exact command to fix it; the Docker instructions now create those folders with the right owner",
+        ],
+    },
     {
         "version": "1.6.2",
         "date": "2026-09-30",

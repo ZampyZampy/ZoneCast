@@ -321,13 +321,24 @@ python scripts/reset_admin_password.py admin "YourNewSecurePassword!"
 
 ```bash
 cp .env.example .env   # customize SECRET_KEY, credentials, etc.
+mkdir -p data media backups && sudo chown -R 1000:1000 data media backups
 docker compose up -d --build
 ```
+
+The app runs as an unprivileged user (uid 1000) inside the container,
+so the `data`, `media` and `backups` folders must belong to it: if Docker
+creates them itself they belong to root, and ZoneCast stops at startup
+with a message giving the same `chown` command.
 
 `docker-compose.yml` uses `network_mode: host`, which is essential so
 multicast RTP traffic actually reaches the physical LAN where the
 speakers live (Docker's default bridge does NAT and doesn't route
 multicast to the outside network).
+
+In Docker the System tab shows the clock and whether the host keeps it
+in sync (read from the kernel, so it works with chrony and
+systemd-timesyncd alike); NTP servers, NTP on/off and the timezone are
+managed on the host itself.
 
 ### Windows
 

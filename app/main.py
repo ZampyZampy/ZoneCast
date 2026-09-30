@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from .config import settings, BASE_DIR, session_secret
+from .config import settings, BASE_DIR, require_writable_dirs, session_secret
 from .database import SessionLocal, get_db
 from .migrate import run_migrations
 from . import errors
@@ -93,6 +93,10 @@ class SlidingSession:
                 session["seen"] = now
         await self.app(scope, receive, send)
 
+
+# Before anything below writes there (session_secret may create
+# data/session.key): an unwritable data folder should say how to fix it.
+require_writable_dirs()
 
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 errors.install(app)

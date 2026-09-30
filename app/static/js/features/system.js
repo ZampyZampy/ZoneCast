@@ -45,7 +45,9 @@ export function renderTimeLabels() {
     $('sys-sync-status').innerHTML = lastTime.ntp_synchronized
         ? `<span class="badge bg-success">${esc(t('system.synced'))}</span>`
         : `<span class="badge bg-warning text-dark">${esc(t('system.notSynced'))}</span>`;
-    $('sys-ntp-servers-display').textContent = lastTime.ntp_servers.length ? lastTime.ntp_servers.join(', ') : t('system.noneConfigured');
+    // On Docker the host's own NTP setup isn't visible from the container.
+    const none = lastTime.controllable ? 'system.noneConfigured' : 'system.ntpServersHostManaged';
+    $('sys-ntp-servers-display').textContent = lastTime.ntp_servers.length ? lastTime.ntp_servers.join(', ') : t(none);
 }
 
 async function loadTime() {
@@ -55,9 +57,12 @@ async function loadTime() {
         $('sys-local-time').textContent = status.local_time;
         $('sys-timezone').textContent = status.timezone;
         $('sys-scheduler-timezone').textContent = status.scheduler_timezone || '—';
-        $('sys-timezone-mismatch').classList.toggle('d-none', !status.scheduler_timezone || status.scheduler_timezone === status.timezone);
+        // Only where it can be fixed: on Docker the container only sees an
+        // abbreviation (CEST) and schedules follow TIMEZONE anyway.
+        $('sys-timezone-mismatch').classList.toggle('d-none', !status.controllable || !status.scheduler_timezone || status.scheduler_timezone === status.timezone);
         renderTimeLabels();
         $('sys-ntp-controls').classList.toggle('d-none', !status.controllable);
+        $('sys-ntp-servers-controls').classList.toggle('d-none', !status.controllable);
         $('sys-time-readonly-note').classList.toggle('d-none', status.controllable);
         $('sys-network-card').classList.toggle('d-none', !status.controllable);
         if (!status.controllable) return;

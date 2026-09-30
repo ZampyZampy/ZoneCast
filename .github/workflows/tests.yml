@@ -80,9 +80,39 @@ jobs:
       - uses: actions/checkout@v7
       - name: Build image
         run: docker build -t zonecast:ci .
-      - name: Starts and answers /health
+      - name: A data folder the app can't write stops the start, saying how to fix it
         run: |
-          docker run -d --name zc -p 8000:8000 -e SECRET_KEY=ci-only-secret zonecast:ci
-          for i in $(seq 30); do curl -fsS http://127.0.0.1:8000/health && exit 0; sleep 1; done
-          docker logs zc
-          exit 1
+          # What Docker does with a bind-mount source that doesn't exist yet.
+          mkdir -p "$RUNNER_TEMP/rootowned" && sudo chown root:root "$RUNNER_TEMP/rootowned"
+          if docker run --name zc-unwritable -e SECRET_KEY=ci-only-secret -v "$RUNNER_TEMP/rootowned:/app/data" zonecast:ci; then
+            echo "the app started with an unwritable data folder"; exit 1
+          fi
+          docker logs zc-unwritable > "$RUNNER_TEMP/unwritable.log" 2>&1 || true
+          tail -5 "$RUNNER_TEMP/unwritable.log"
+          grep -q "sudo chown -R 1000:1000 data media backups" "$RUNNER_TEMP/unwritable.log"
+      - name: Install from the kit's files as the deploy guide says
+        run: |
+          mkdir -p "$RUNNER_TEMP/zonecast"
+          git archive HEAD app migrations alembic.ini deploy requirements.txt Dockerfile docker-compose.yml .env.example README.md             | tar -x -C "$RUNNER_TEMP/zonecast"
+          cd "$RUNNER_TEMP/zonecast"
+          cp .env.example .env
+          sed -i 's/^SECRET_KEY=.*/SECRET_KEY=ci-only-secret-key/; s/^DEFAULT_ADMIN_PASSWORD=.*/DEFAULT_ADMIN_PASSWORD=ci-admin-password/' .env
+          mkdir -p data media backups && sudo chown -R 1000:1000 data media backups
+          docker compose up -d --build
+          for i in $(seq 60); do curl -fsS http://127.0.0.1:8000/health && exit 0; sleep 1; done
+          docker compose logs --no-color; exit 1
+      - name: Runs as an unprivileged user, with the one capability it needs on date
+        run: |
+          cd "$RUNNER_TEMP/zonecast"
+          test "$(docker compose exec -T zonecast id -u)" = 1000
+          docker compose exec -T zonecast getcap /bin/date | grep -q cap_sys_time
+      - name: Used like a user would (zone, speaker, audio upload, backup, clock)
+        run: python3 tests/docker_smoke.py setup http://127.0.0.1:8000 ci-admin-password "$(timedatectl show -p NTPSynchronized --value)"
+      - name: Everything survives a restart
+        run: |
+          (cd "$RUNNER_TEMP/zonecast" && docker compose restart)
+          for i in $(seq 60); do curl -fsS http://127.0.0.1:8000/health > /dev/null && break; sleep 1; done
+          python3 tests/docker_smoke.py after-restart http://127.0.0.1:8000 ci-admin-password
+      - name: Container log
+        if: always()
+        run: (cd "$RUNNER_TEMP/zonecast" && docker compose logs --no-color | tail -150) || true
