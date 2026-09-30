@@ -4,7 +4,7 @@ APP_VERSION and add a CHANGELOG entry whenever a user-visible change
 ships — this is the only place either needs updating.
 """
 
-APP_VERSION = "1.6.1"
+APP_VERSION = "1.6.2"
 
 # Newest first. Each entry: version, date (YYYY-MM-DD), list of
 # one-line change descriptions. English, matching the UI's default
@@ -12,6 +12,14 @@ APP_VERSION = "1.6.1"
 # through app/static/js/i18n.js, so non-English viewers see it in
 # English regardless of their selected language.
 CHANGELOG = [
+    {
+        "version": "1.6.2",
+        "date": "2026-09-30",
+        "changes": [
+            "Deleting a speaker also empties its device's multicast list (Fanvil), so it stops playing announcements to its old zones and to all speakers; if the device can't be reached, a message says it has to be reconfigured by hand",
+            "A session now expires after 12 hours without use instead of 12 hours after sign-in; the dashboard's own automatic refreshes don't count as use",
+        ],
+    },
     {
         "version": "1.6.1",
         "date": "2026-09-30",

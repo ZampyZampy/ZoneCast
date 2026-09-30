@@ -10,6 +10,8 @@ from app.config import settings
 from app.models import Speaker, zone_members
 from app.services import multicast_provisioning
 from app.services.drivers import PushResult
+from app.services.multicast_provisioning import clear_device as real_clear_device
+from app.services.multicast_provisioning import push_to_speaker as real_push_to_speaker
 from app.services.multicast_provisioning import request_push as real_request_push
 
 _serial = iter(range(1, 10_000))
@@ -343,3 +345,80 @@ def test_apply_now_waits_its_turn_with_a_queued_push(admin_client, monkeypatch):
 
     assert asyncio.run(scenario()).success
     assert len(done) >= 2 and _speakers(admin_client)[sid]["paging_sync_ok"] is True
+
+
+# --- deleting a speaker empties its device --------------------------------------
+
+class _FakeFanvil:
+    supports_multicast_push = True
+    max_paging_slots = 20
+
+    def __init__(self, reachable=True, fail=False, delay=0.0):
+        self.reachable, self.fail, self.delay = reachable, fail, delay
+        self.pushes = []
+
+    async def check_reachable(self, speaker, timeout=2.0):
+        return self.reachable
+
+    async def push_multicast_config(self, speaker, entries):
+        if self.fail:
+            raise RuntimeError("device said no")
+        self.pushes.append((speaker.id, [e.address for e in entries]))
+        await asyncio.sleep(self.delay)
+        return PushResult(success=True)
+
+
+def _use_driver(monkeypatch, fake):
+    monkeypatch.setattr(multicast_provisioning, "get_driver", lambda brand: fake if (brand or "").lower() == "fanvil" else None)
+    monkeypatch.setattr(multicast_provisioning, "clear_device", real_clear_device)
+
+
+def test_deleting_a_speaker_empties_its_device(admin_client, monkeypatch):
+    fake = _FakeFanvil()
+    _use_driver(monkeypatch, fake)
+    sid = _speaker(admin_client)
+    _zone(admin_client, [sid])
+    res = admin_client.delete(f"/api/speakers/{sid}")
+    assert res.status_code == 200 and res.json()["device"] == "cleared"
+    assert fake.pushes == [(sid, [])]  # every slot, own group and all-call included
+    assert sid not in _speakers(admin_client)
+
+
+@pytest.mark.parametrize("brand, fake, outcome", [
+    ("Fanvil", _FakeFanvil(reachable=False), "unreachable"),
+    ("Fanvil", _FakeFanvil(fail=True), "failed"),
+    ("Algo", _FakeFanvil(), "manual"),
+])
+def test_the_speaker_is_deleted_whatever_its_device_does(admin_client, monkeypatch, brand, fake, outcome):
+    _use_driver(monkeypatch, fake)
+    sid = _speaker(admin_client, brand=brand)
+    res = admin_client.delete(f"/api/speakers/{sid}")
+    assert res.status_code == 200 and res.json()["device"] == outcome
+    assert fake.pushes == []
+    assert sid not in _speakers(admin_client)
+
+
+def test_a_push_under_way_cannot_write_the_list_back_after_the_device_is_emptied(admin_client, monkeypatch):
+    fake = _FakeFanvil(delay=0.05)
+    _use_driver(monkeypatch, fake)
+    monkeypatch.setattr(multicast_provisioning, "push_to_speaker", real_push_to_speaker)
+    sid = _speaker(admin_client)
+
+    async def scenario():
+        running = asyncio.create_task(real_request_push(sid))
+        await asyncio.sleep(0.01)  # the full list is being written
+        db = SessionLocal()
+        try:
+            speaker = db.query(Speaker).filter(Speaker.id == sid).first()
+            snapshot = multicast_provisioning.device_snapshot(speaker)
+            db.delete(speaker)
+            db.commit()
+        finally:
+            db.close()
+        queued = asyncio.create_task(real_request_push(sid))  # e.g. a zone saved meanwhile
+        result = await real_clear_device(snapshot)
+        await asyncio.gather(running, queued)
+        return result
+
+    assert asyncio.run(scenario()).success
+    assert [entries == [] for _, entries in fake.pushes] == [False, True]  # full list, then emptied, nothing after

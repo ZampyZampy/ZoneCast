@@ -2,6 +2,8 @@
 // background tab, and only while `when()` holds (e.g. its tab is open).
 // Coming back to the page refreshes immediately instead of waiting a
 // full interval.
+import { inBackground } from './api.js';
+
 const pollers = new Set();
 
 export function poller(fn, intervalMs, { when = () => true } = {}) {
@@ -10,7 +12,9 @@ export function poller(fn, intervalMs, { when = () => true } = {}) {
     const tick = async () => {
         if (running || document.hidden || !when()) return;
         running = true;
-        try { await fn(); } catch (err) { /* the callee reports its own errors */ } finally { running = false; }
+        // inBackground only covers fn's synchronous start, where its api()
+        // calls are made, so a click meanwhile is never flagged.
+        try { await inBackground(fn); } catch (err) { /* the callee reports its own errors */ } finally { running = false; }
     };
     const p = {
         start() { if (!timer) timer = setInterval(tick, intervalMs); },

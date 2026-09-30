@@ -122,11 +122,12 @@ def update_speaker(
 
 
 @router.delete("/{speaker_id}")
-def delete_speaker(speaker_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+async def delete_speaker(speaker_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     speaker = db.query(Speaker).filter(Speaker.id == speaker_id).first()
     if not speaker:
         raise AppError(404, "speakers.not_found", "Speaker not found.")
     references.refuse_if_used(references.schedules_targeting(db, TargetType.speaker, speaker_id), "speakers.in_use", "This speaker")
+    device = multicast_provisioning.device_snapshot(speaker)
     # Config backups deliberately outlive the speaker (see
     # SpeakerConfigBackup docstring) — detach rather than cascade-delete.
     db.query(SpeakerConfigBackup).filter(SpeakerConfigBackup.speaker_id == speaker_id).update(
@@ -135,7 +136,16 @@ def delete_speaker(speaker_id: int, db: Session = Depends(get_db), _: User = Dep
     speaker.zones = []
     db.delete(speaker)
     db.commit()
-    return {"ok": True}
+    # Deleted first, so the check above can't go stale while the device
+    # is being emptied; the deletion stands whatever the device does.
+    result = await multicast_provisioning.clear_device(device)
+    if result.unsupported_brand:
+        outcome = "manual"
+    elif result.success:
+        outcome = "cleared"
+    else:
+        outcome = "unreachable" if result.failed_keys == ["unreachable"] else "failed"
+    return {"ok": True, "device": outcome}
 
 
 @router.post("/{speaker_id}/ping", response_model=SpeakerOut)

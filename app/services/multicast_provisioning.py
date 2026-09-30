@@ -140,6 +140,42 @@ def _device_lock(speaker_id: int) -> asyncio.Lock:
     return _device_locks.setdefault((id(asyncio.get_running_loop()), speaker_id), asyncio.Lock())
 
 
+def device_snapshot(speaker: Speaker) -> Speaker:
+    """A detached copy with what a driver needs to reach the device,
+    still usable once the row is deleted (see clear_device)."""
+    return Speaker(
+        id=speaker.id, name=speaker.name, brand=speaker.brand, ip_address=speaker.ip_address,
+        http_port=speaker.http_port, http_username=speaker.http_username, http_password=speaker.http_password,
+    )
+
+
+async def clear_device(speaker: Speaker) -> PushResult:
+    """Empties the device's paging list — its own group, its zones and
+    the all-call group — once its speaker has been deleted, so it stops
+    playing announcements nothing in the dashboard points to any more.
+    Takes the device's turn like a push: one already running finishes
+    first, a queued one runs afterwards and, finding no speaker, writes
+    nothing back. Best effort: an offline device is left as it is."""
+    driver = get_driver(speaker.brand)
+    if not driver or not driver.supports_multicast_push:
+        return PushResult(success=False, unsupported_brand=True)
+    async with _device_lock(speaker.id):
+        try:
+            if await driver.check_reachable(speaker):
+                result = await driver.push_multicast_config(speaker, [])
+            else:
+                result = PushResult(success=False, failed_keys=["unreachable"])
+        except Exception as exc:
+            logger.exception("Svuotamento della lista multicast dell'altoparlante eliminato %s non riuscito", speaker.id)
+            result = PushResult(success=False, failed_keys=[str(exc)[:200]])
+    if result.success:
+        logger.info("Altoparlante eliminato %s (%s): lista multicast del dispositivo svuotata", speaker.name, speaker.ip_address)
+    else:
+        logger.warning("Altoparlante eliminato %s (%s): lista multicast del dispositivo NON svuotata (%s) — continuerà a suonare finché non viene riconfigurato",
+                       speaker.name, speaker.ip_address, "; ".join(result.failed_keys))
+    return result
+
+
 async def _push_and_record(speaker_id: int) -> PushResult | None:
     """Loads the speaker as it is now, pushes, records the outcome."""
     from ..database import SessionLocal

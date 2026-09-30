@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     app_name: str = "ZoneCast"
     secret_key: str = "change-me-in-production"
-    session_max_age_seconds: int = 60 * 60 * 12  # 12h
+    session_max_age_seconds: int = 60 * 60 * 12  # 12h without activity (main.SlidingSession)
 
     data_dir: Path = BASE_DIR / "data"
     database_url: str = f"sqlite:///{BASE_DIR / 'data' / 'zonecast.db'}"

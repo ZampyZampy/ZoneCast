@@ -203,9 +203,13 @@ export function init() {
         delete: (id, btn) => {
             if (!confirm(t('confirm.deleteSpeaker'))) return;
             run(async () => {
-                await api(`/api/speakers/${id}`, { method: 'DELETE' });
+                // Waits for the device's multicast list to be emptied too.
+                const res = await api(`/api/speakers/${id}`, { method: 'DELETE' });
                 await refresh('speakers', 'zones', 'overlaps');  // its zones' schedules may no longer overlap
-            }, { button: btn });
+                if (res.device === 'cleared') toast(t('toast.speakerDeletedCleared'));
+                else if (res.device === 'manual') toast(t('toast.speakerDeletedManual'), 'warning');
+                else toast(t('toast.speakerDeletedNotCleared'), 'danger');  // it keeps playing: stays until closed
+            }, { button: btn, busyLabel: t('action.deleting') });
         },
     });
 }

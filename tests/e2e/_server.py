@@ -20,9 +20,14 @@ async def _fake_push(speaker):
     return PushResult(success=True)
 
 
+async def _fake_clear(speaker):
+    return PushResult(success=True)
+
+
 speaker_status.check_and_update = _fake_check
 # request_push runs for real (queue, sync status), only the device write is faked.
 multicast_provisioning.push_to_speaker = _fake_push
+multicast_provisioning.clear_device = _fake_clear
 
 if __name__ == "__main__":
     import uvicorn

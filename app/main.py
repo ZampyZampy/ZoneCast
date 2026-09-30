@@ -70,8 +70,34 @@ CONTENT_SECURITY_POLICY = (
     "form-action 'self'"
 )
 
+class SlidingSession:
+    """Makes session_max_age_seconds an inactivity timeout instead of a
+    fixed lifetime from sign-in: SessionMiddleware re-signs the cookie
+    (restarting its max_age, which it also enforces on the signature)
+    only when the session changes, so a signed-in request touches it —
+    at most once a minute. Requests the dashboard makes on its own
+    (pollers, see static/js/lib/poller.js) carry BACKGROUND_HEADER and
+    don't count: a tab left open is not someone using it."""
+
+    BACKGROUND_HEADER = b"x-zonecast-background"
+    RENEW_AFTER_SECONDS = 60
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        session = scope.get("session") if scope["type"] == "http" else None
+        if session and session.get("user_id") and not any(k == self.BACKGROUND_HEADER for k, _ in scope["headers"]):
+            now = int(time.time())
+            if now - session.get("seen", 0) >= self.RENEW_AFTER_SECONDS:
+                session["seen"] = now
+        await self.app(scope, receive, send)
+
+
 app = FastAPI(title=settings.app_name, lifespan=lifespan)
 errors.install(app)
+# Added first, so it runs inside SessionMiddleware, with the session loaded.
+app.add_middleware(SlidingSession)
 app.add_middleware(SessionMiddleware, secret_key=session_secret(), max_age=settings.session_max_age_seconds)
 
 

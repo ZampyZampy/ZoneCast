@@ -28,8 +28,19 @@ async function send(path, init) {
     return res;
 }
 
+// Requests the dashboard makes on its own (pollers) are flagged so they
+// don't keep the session alive: it expires after a period without real
+// use (see SlidingSession in app/main.py).
+let backgroundDepth = 0;
+
+export function inBackground(fn) {
+    backgroundDepth++;
+    try { return fn(); } finally { backgroundDepth--; }
+}
+
 export async function api(path, { method = 'GET', body } = {}) {
     const init = { method, headers: {} };
+    if (backgroundDepth) init.headers['X-ZoneCast-Background'] = '1';
     if (body !== undefined) {
         init.headers['Content-Type'] = 'application/json';
         init.body = JSON.stringify(body);

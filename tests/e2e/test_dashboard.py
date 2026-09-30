@@ -159,6 +159,27 @@ def test_operator_sees_no_admin_ui_and_does_not_poll_admin_endpoints(page, serve
     assert page.errors == []
 
 
+def test_polling_is_flagged_so_it_does_not_keep_the_session_alive(page, server):
+    """Automatic refreshes carry X-ZoneCast-Background (see SlidingSession
+    in app/main.py); what the user does never does."""
+    seen = []
+    page.on("request", lambda r: seen.append((r.url, r.headers.get("x-zonecast-background")))
+            if "/api/playback/history" in r.url else None)
+    page.clock.install()
+    login(page, server)
+    page.wait_for_timeout(500)
+    assert seen and all(flag is None for _, flag in seen)  # the first load, at sign-in
+    seen.clear()
+    page.clock.run_for(16_000)  # one idle polling interval (15 s)
+    page.wait_for_timeout(500)
+    assert seen and all(flag == "1" for _, flag in seen)
+    seen.clear()
+    page.click("#refresh-history")  # the same request, asked for by the user
+    page.wait_for_timeout(500)
+    assert seen and all(flag is None for _, flag in seen)
+    assert page.errors == []
+
+
 def test_dashboard_needs_no_internet(page, server):
     hosts = set()
     page.on("request", lambda r: hosts.add(re.sub(r"^https?://([^/:]+).*$", r"\1", r.url)))

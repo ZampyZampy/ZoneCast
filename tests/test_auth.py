@@ -99,3 +99,59 @@ def test_other_admins_can_still_be_demoted(admin_client):
     assert res.status_code == 200
     assert res.json()["role"] == "operator"
     admin_client.delete(f"/api/auth/users/{res.json()['id']}")
+
+
+# --- session expiry: counted from the last real use, not from sign-in ---------
+
+def _frozen_clock(monkeypatch, start):
+    """Drives both the session cookie's signature age (itsdangerous) and
+    SlidingSession's renewal clock."""
+    from types import SimpleNamespace
+    import itsdangerous.timed
+    import app.main as main_module
+    clock = [start]
+    monkeypatch.setattr(itsdangerous.timed.TimestampSigner, "get_timestamp", lambda self: int(clock[0]))
+    monkeypatch.setattr(main_module, "time", SimpleNamespace(time=lambda: clock[0]))
+    return clock
+
+
+def test_session_expires_after_inactivity_not_after_sign_in(client, monkeypatch):
+    from app.config import settings
+    hours = 3600
+    assert settings.session_max_age_seconds == 12 * hours
+    clock = _frozen_clock(monkeypatch, 1_000_000)
+    assert client.post("/api/auth/login", json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}).status_code == 200
+    signed_at_login = client.cookies.get("session")
+
+    clock[0] += 11 * hours  # in use again before it expires: renewed
+    res = client.get("/api/auth/me")
+    assert res.status_code == 200 and "session=" in res.headers.get("set-cookie", "")
+
+    clock[0] += 2 * hours  # 13 h after sign-in, 2 h after the last use
+    assert client.get("/api/auth/me").status_code == 200
+
+    client.cookies.set("session", signed_at_login)  # the cookie from sign-in has run out
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_dashboard_polling_does_not_keep_a_session_alive(client, monkeypatch):
+    hours = 3600
+    clock = _frozen_clock(monkeypatch, 2_000_000)
+    assert client.post("/api/auth/login", json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD}).status_code == 200
+    background = {"X-ZoneCast-Background": "1"}
+    for _ in range(11):
+        clock[0] += hours
+        res = client.get("/api/playback/history?limit=30", headers=background)
+        assert res.status_code == 200 and "set-cookie" not in res.headers
+    clock[0] += 2 * hours  # 13 h of nothing but polling since sign-in
+    assert client.get("/api/playback/history?limit=30", headers=background).status_code == 401
+
+
+def test_session_renewal_is_throttled(client, monkeypatch):
+    clock = _frozen_clock(monkeypatch, 3_000_000)
+    client.post("/api/auth/login", json={"username": ADMIN_USERNAME, "password": ADMIN_PASSWORD})
+    assert "set-cookie" in client.get("/api/auth/me").headers  # first use after sign-in
+    clock[0] += 30
+    assert "set-cookie" not in client.get("/api/auth/me").headers  # not on every request
+    clock[0] += 31
+    assert "set-cookie" in client.get("/api/auth/me").headers

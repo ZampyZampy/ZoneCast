@@ -52,6 +52,10 @@ def _no_device_network(monkeypatch):
     async def _no_io(*_args, **_kwargs):
         return None
 
+    async def _device_untouched(*_args, **_kwargs):
+        from app.services.drivers import PushResult
+        return PushResult(success=False, unsupported_brand=True)
+
     def _no_rtp(_ttl):
         raise RuntimeError("test tried to open an RTP multicast socket — fake rtp_multicast._make_socket instead")
 
@@ -60,6 +64,7 @@ def _no_device_network(monkeypatch):
     monkeypatch.setattr(speaker_status, "check_and_update", _no_io)
     monkeypatch.setattr(multicast_provisioning, "request_push", _no_io)
     monkeypatch.setattr(multicast_provisioning, "request_pushes", _no_io)
+    monkeypatch.setattr(multicast_provisioning, "clear_device", _device_untouched)
 
     local = {"testserver", "127.0.0.1", "localhost"}
     real_async_send, real_send = httpx.AsyncClient.send, httpx.Client.send
