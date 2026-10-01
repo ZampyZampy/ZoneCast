@@ -29,7 +29,7 @@ jobs:
           uv pip compile requirements.in --universal --python-version 3.11 --generate-hashes -q -o requirements.txt
           uv pip compile requirements-dev.in --universal --python-version 3.11 --generate-hashes -q -o requirements-dev.txt
           git diff --exit-code -I '^#' -- requirements.txt requirements-dev.txt
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: "24"
       - name: JavaScript syntax
