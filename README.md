@@ -18,7 +18,7 @@ with per-country holidays and your own custom dates — without two
 schedules ever playing on the same speaker at once.
 
 <p align="center">
-  <img src="docs/readme/tour.gif" alt="ZoneCast tour: sign in, play an audio file to a zone, browse speakers, a zone's members, schedules and custom dates, media and the automatic backup, then switch to the dark theme and to Italian and Japanese" width="100%">
+  <img src="docs/readme/tour.gif" alt="ZoneCast tour with the mouse pointer: sign in, play an audio file to a zone and stop it from the history, browse speakers, a zone's members, schedules and custom dates, media and the automatic backup, then switch to the dark theme and to Italian and Japanese" width="100%">
 </p>
 <p align="center"><sub>Sign in → play a file to a zone → speakers → a zone's members → schedules and custom dates → media → automatic backup → dark theme → Italian / Japanese</sub></p>
 
@@ -91,7 +91,7 @@ The whole dashboard works from a phone: the sidebar becomes a drawer
 scroll sideways when needed, and action buttons shrink to icons.
 
 <p align="center">
-  <img src="docs/readme/mobile.gif" alt="ZoneCast on a phone: play tab, the drawer, the Zones tab and a zone's member list, schedules, speakers, and the dark theme" width="262">
+  <img src="docs/readme/mobile.gif" alt="ZoneCast on a phone, taps highlighted: play tab, the drawer, the Zones tab and a zone's member list, schedules and custom dates, speakers, and the dark theme" width="262">
   &nbsp;&nbsp;
   <img src="docs/readme/mobile.png" alt="ZoneCast on a phone: play tab, sidebar drawer, a zone's member list, schedules and custom dates, speakers, and the dark theme" width="404">
 </p>
