@@ -7,6 +7,7 @@
 
 [![Tests](https://github.com/ZampyZampy/ZoneCast/actions/workflows/tests.yml/badge.svg)](https://github.com/ZampyZampy/ZoneCast/actions/workflows/tests.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Donate with PayPal](https://img.shields.io/badge/Donate-PayPal-00457C?logo=paypal&logoColor=white)](https://www.paypal.me/zampiniriccardo)
 
 Web application for managing a PA/intercom sound system built on IP
 speakers, designed to stay brand-agnostic — a dropdown with the most
@@ -466,6 +467,13 @@ sudo systemctl start zonecast
   direct access to this repository (contains `app/`, `migrations/`,
   `alembic.ini`, `deploy/`, `requirements.txt`, `Dockerfile`,
   `docker-compose.yml`, `.env.example`, `README.md`).
+
+## Support the project
+
+ZoneCast is free and open source. If it's useful to you, you can support
+its development with a donation:
+
+<a href="https://www.paypal.me/zampiniriccardo"><img src="https://img.shields.io/badge/Donate-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="Donate with PayPal"></a>
 
 ## License
 
