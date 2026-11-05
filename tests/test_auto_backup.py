@@ -574,3 +574,22 @@ def test_automatic_backups_restore_from_the_command_line(tmp_path, monkeypatch):
     bundle_file.write_bytes(bundle.build_export(password=PASSWORD, db_path=src, secret_key_path=tmp_path / "none.key",
                                                 media_dir=tmp_path / "m", backups_dir=tmp_path / "b"))
     assert import_bundle.main() == 1  # newer schema: refused, nothing replaced
+
+
+def test_an_ftp_upload_of_the_wrong_size_never_gets_its_final_name(tmp_path):
+    from types import SimpleNamespace
+
+    from app.services import backup_remote
+
+    local = tmp_path / "zonecast-x.zcbundle"
+    local.write_bytes(b"0123456789")
+    calls = []
+    ftp = SimpleNamespace(storbinary=lambda cmd, f: calls.append(cmd), voidcmd=lambda cmd: None,
+                          size=lambda name: 4, rename=lambda a, b: calls.append(f"RNTO {b}"),
+                          delete=lambda name: calls.append(f"DELE {name}"))
+    remote = backup_remote._FtpRemote.__new__(backup_remote._FtpRemote)
+    remote.ftp = ftp
+    with pytest.raises(backup_remote.BackupError) as exc:
+        remote.upload(local, local.name)
+    assert exc.value.code == "backup.verify_failed"
+    assert calls == [f"STOR .{local.name}.part", f"DELE .{local.name}.part"]

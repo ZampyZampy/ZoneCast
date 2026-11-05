@@ -142,6 +142,9 @@ def apply(interface: str, address_cidr: str, gateway: str, dns_servers: list[str
     Returns the watchdog timeout in seconds (see zonecast-netctl.sh)."""
     if interface not in list_interfaces():
         raise NetworkConfigError(f"Interfaccia '{interface}' non trovata")
+    # ip_interface reads a bare address as /32, but netplan rejects it.
+    if "/" not in address_cidr:
+        raise NetworkConfigError("Indicare l'indirizzo con il prefisso, ad esempio 192.168.1.50/24")
     try:
         ipaddress.ip_interface(address_cidr)
         ipaddress.ip_address(gateway)
@@ -151,6 +154,11 @@ def apply(interface: str, address_cidr: str, gateway: str, dns_servers: list[str
         raise NetworkConfigError(f"Parametro di rete non valido: {exc}") from exc
     if not dns_servers:
         raise NetworkConfigError("Specificare almeno un server DNS")
+
+    # A second apply during the trial would make the first one's watchdog
+    # revert to the unconfirmed config and lose the original — see net-apply.
+    if pending():
+        raise NetworkConfigError("Una modifica di rete è già in attesa di conferma: confermala o attendi il ripristino automatico")
 
     yaml_content = _build_netplan_yaml(interface, address_cidr, gateway, dns_servers)
     try:

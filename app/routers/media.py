@@ -147,8 +147,16 @@ async def _normalize(media_id: int, db: Session) -> Media:
 
     try:
         await asyncio.to_thread(audio_analysis.apply_gain, src_path, media.suggested_gain_db)
+    except audio_analysis.AudioAnalysisError as exc:
+        raise AppError(502, "media.amplify_failed", "Amplification failed.", detail=str(exc)[-300:]) from exc
+    try:
         duration = await asyncio.to_thread(convert_to_pcm8k, src_path, pcm_path)
-    except (audio_analysis.AudioAnalysisError, AudioConversionError) as exc:
+    except AudioConversionError as exc:
+        # The gain is already in the file: re-read its level, or a retry
+        # would amplify it a second time and clip it for good.
+        await asyncio.to_thread(_run_analysis, media, src_path)
+        media.normalized = True
+        db.commit()
         raise AppError(502, "media.amplify_failed", "Amplification failed.", detail=str(exc)[-300:]) from exc
 
     media.duration_seconds = duration

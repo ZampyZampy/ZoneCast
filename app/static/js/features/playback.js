@@ -1,7 +1,7 @@
 // "Play now" and the playback history.
 import { api } from '../lib/api.js';
-import { $, actionButton, esc, fillSelect, isVisible, modal, onAction, run } from '../lib/dom.js';
-import { fmtDateTime } from '../lib/format.js';
+import { $, actionButton, el, esc, fillSelect, isVisible, modal, onAction, run } from '../lib/dom.js';
+import { fmtDateTime, targetLabel } from '../lib/format.js';
 import { poller } from '../lib/poller.js';
 import { mediaName, onDataChange, state } from '../state.js';
 import { onTabShown } from './nav.js';
@@ -13,19 +13,6 @@ const ACTIVE_POLL_MS = 3000;  // while something is playing, so "completed" show
 // has arrived would flash a wrong empty state on every page load.
 let history = null;
 const historyPoller = poller(loadHistory, IDLE_POLL_MS, { when: () => isVisible($('tab-play')) });
-
-function targetLabel(r) {
-    if (r.target_type === 'all') return t('common.allSpeakers');
-    if (r.target_type === 'zone') return `${t('common.zone')}: ${r.target_label}`;
-    return r.target_label;
-}
-
-function el(tag, className, text) {
-    const node = document.createElement(tag);
-    if (className) node.className = className;
-    if (text !== undefined) node.textContent = text;
-    return node;
-}
 
 // Lists what's already playing on some of the chosen speakers (built with
 // textContent: labels and names are free text) and resolves with the
@@ -97,14 +84,18 @@ export function renderHistory() {
         </tr>`).join('') || `<tr><td colspan="6" class="text-muted">${esc(t('empty.playbacks'))}</td></tr>`;
 }
 
-export async function loadHistory() {
-    try {
-        history = await api('/api/playback/history?limit=30');
-    } catch (err) {
-        return;  // transient (e.g. a restart): the next poll retries
-    }
+async function fetchHistory() {
+    history = await api('/api/playback/history?limit=30');
     renderHistory();
     historyPoller.setInterval(history.some(r => r.status === 'running') ? ACTIVE_POLL_MS : IDLE_POLL_MS);
+}
+
+export async function loadHistory() {
+    try {
+        await fetchHistory();
+    } catch (err) {
+        // transient (e.g. a restart): the next poll retries
+    }
 }
 
 export function refreshTargetOptions(prefix) {
@@ -140,7 +131,7 @@ export function init() {
         await loadHistory();
         return true;
     }, { button: e.currentTarget, success: (started) => (started ? t('toast.playbackStarted') : null) }));
-    $('refresh-history').addEventListener('click', (e) => run(loadHistory, { button: e.currentTarget }));
+    $('refresh-history').addEventListener('click', (e) => run(fetchHistory, { button: e.currentTarget }));  // errors shown
     onAction($('history-body'), {
         stop: (id, btn) => run(async () => {
             await api(`/api/playback/stop/${id}`, { method: 'POST' });

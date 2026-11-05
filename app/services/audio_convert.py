@@ -37,13 +37,3 @@ def convert_to_pcm8k(src_path: Path, dst_path: Path) -> float:
         rate = w.getframerate()
         duration = frames / float(rate) if rate else 0.0
     return duration
-
-
-def probe_duration(path: Path) -> float:
-    try:
-        with wave.open(str(path), "rb") as w:
-            frames = w.getnframes()
-            rate = w.getframerate()
-            return frames / float(rate) if rate else 0.0
-    except Exception:
-        return 0.0

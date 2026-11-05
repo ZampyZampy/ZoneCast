@@ -113,7 +113,9 @@ def apply_gain(path: Path, gain_db: float) -> None:
     reshaped). The caller is expected to have sized gain_db so the
     result doesn't clip (see TARGET_CEILING_DB above)."""
     tmp_path = path.with_name(f"{path.stem}.gaintmp{path.suffix}")
-    cmd = ["ffmpeg", "-y", "-i", str(path), "-vn", "-af", f"volume={gain_db}dB", str(tmp_path)]
+    # ".audio" (upload with no usable extension) names no format ffmpeg can write.
+    out_format = ["-f", "wav"] if path.suffix == ".audio" else []
+    cmd = ["ffmpeg", "-y", "-i", str(path), "-vn", "-af", f"volume={gain_db}dB", *out_format, str(tmp_path)]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     except FileNotFoundError as exc:

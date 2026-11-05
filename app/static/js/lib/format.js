@@ -15,6 +15,13 @@ export function compareValues(a, b) {
     return String(a ?? '').localeCompare(String(b ?? ''), getLanguage(), { numeric: true, sensitivity: 'base' });
 }
 
+// Where a playback or schedule plays, as shown in lists.
+export function targetLabel(r) {
+    if (r.target_type === 'all') return t('common.allSpeakers');
+    if (r.target_type === 'zone') return `${t('common.zone')}: ${r.target_label}`;
+    return r.target_label;
+}
+
 export const fmtGiB = (bytes) => (bytes / (1024 ** 3)).toFixed(1);
 
 // A calendar day ("2026-12-24") or a wall-clock time on the scheduler's

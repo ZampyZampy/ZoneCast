@@ -2,7 +2,9 @@
 A random id for this installation, kept in data/instance.id. It is not
 part of exported bundles (those carry only the database and the
 encryption key), so a restored or copied database can tell it's running
-on another machine — see services/auto_backup.py.
+on another machine — see services/auto_backup.py. A VM cloned together
+with its data/ folder keeps the same id: delete data/instance.id on the
+clone, or the two would prune each other's backups at a shared destination.
 """
 import uuid
 

@@ -1,7 +1,7 @@
 // Schedules: table and the create/edit dialog.
 import { api } from '../lib/api.js';
-import { $, actionButton, esc, fillSelect, modal, onAction, run, toast } from '../lib/dom.js';
-import { fmtWallClock } from '../lib/format.js';
+import { $, actionButton, el, esc, fillSelect, modal, onAction, run, toast } from '../lib/dom.js';
+import { fmtWallClock, targetLabel } from '../lib/format.js';
 import { makeSortable, sortedRows } from '../lib/sort.js';
 import { mediaName, onDataChange, refresh, speakerName, state, zoneName } from '../state.js';
 import { refreshTargetOptions } from './playback.js';
@@ -110,25 +110,18 @@ function clearConflicts() {
 // the dialog (a toast would vanish while the user fixes the form).
 function showConflicts(params) {
     const box = $('schedule-conflicts');
-    const node = (tag, className, text) => {
-        const el = document.createElement(tag);
-        if (className) el.className = className;
-        if (text !== undefined) el.textContent = text;
-        return el;
-    };
-    const list = node('ul', 'mb-1 ps-3');
+    const list = el('ul', 'mb-1 ps-3');
     for (const c of params.conflicts) {
-        const item = node('li', 'mb-1');
-        const target = c.target_type === 'all' ? t('common.allSpeakers')
-            : (c.target_type === 'zone' ? `${t('common.zone')}: ${c.target_label}` : c.target_label);
+        const item = el('li', 'mb-1');
+        const target = targetLabel(c);
         const days = c.days.map(d => t(`schedules.${d}`)).join(' ');
-        item.append(node('span', 'fw-medium', c.name), document.createTextNode(` — ${target}, ${c.time} (${days}). `),
-            node('span', '', t('schedules.overlapFirst', { when: fmtWallClock(c.first_clash) })));
+        item.append(el('span', 'fw-medium', c.name), document.createTextNode(` — ${target}, ${c.time} (${days}). `),
+            el('span', '', t('schedules.overlapFirst', { when: fmtWallClock(c.first_clash) })));
         if (c.shared_count) {
             const more = c.shared_count > c.shared_speakers.length ? ', …' : '';
-            item.append(node('div', 'small', t('schedules.overlapShared', { n: c.shared_count, names: c.shared_speakers.join(', ') + more })));
+            item.append(el('div', 'small', t('schedules.overlapShared', { n: c.shared_count, names: c.shared_speakers.join(', ') + more })));
         }
-        const open = node('button', 'btn btn-link btn-sm p-0 align-baseline', t('schedules.openSchedule'));
+        const open = el('button', 'btn btn-link btn-sm p-0 align-baseline', t('schedules.openSchedule'));
         open.type = 'button';
         open.addEventListener('click', () => {
             if (!confirm(t('confirm.openOtherSchedule'))) return;
@@ -142,8 +135,8 @@ function showConflicts(params) {
         item.append(document.createTextNode(' '), open);
         list.append(item);
     }
-    box.replaceChildren(node('div', 'fw-medium mb-1', t('schedules.overlapTitle')), list,
-        node('div', 'small', t('schedules.overlapHint')));
+    box.replaceChildren(el('div', 'fw-medium mb-1', t('schedules.overlapTitle')), list,
+        el('div', 'small', t('schedules.overlapHint')));
     box.classList.remove('d-none');
     box.scrollIntoView({ block: 'nearest' });
 }

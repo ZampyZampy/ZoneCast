@@ -2,24 +2,21 @@
 Utility to reset (or create) the admin user's password directly against
 the database, for when web login access is lost.
 
-Usage (from the project root, with the venv active or inside the
-container):
-    python scripts/reset_admin_password.py <username> <new_password>
+Usage, from the install folder (/opt/zonecast, or /app in the container)
+as the service user, so the database stays owned by it:
+    python -m app.tools.reset_admin_password <username> <new_password>
 """
 import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from app.database import SessionLocal  # noqa: E402
-from app.migrate import run_migrations  # noqa: E402
-from app.models import User, UserRole  # noqa: E402
-from app.security import hash_password  # noqa: E402
+from ..database import SessionLocal
+from ..migrate import run_migrations
+from ..models import User, UserRole
+from ..security import hash_password
 
 
 def main():
     if len(sys.argv) != 3:
-        print("Uso: python scripts/reset_admin_password.py <username> <nuova_password>")
+        print("Uso: python -m app.tools.reset_admin_password <username> <nuova_password>")
         sys.exit(1)
 
     username, new_password = sys.argv[1], sys.argv[2]

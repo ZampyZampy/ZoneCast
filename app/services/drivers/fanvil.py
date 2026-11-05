@@ -26,8 +26,5 @@ class FanvilDriver(SpeakerDriver):
     async def export_config(self, speaker: Speaker, fmt: str = "txt") -> str:
         return await fanvil_http.export_config(speaker, fmt=fmt)
 
-    async def check_reachable(self, speaker: Speaker, timeout: float = 2.0) -> bool:
-        return await fanvil_http.check_reachable(speaker, timeout=timeout)
-
 
 __all__ = ["FanvilDriver", "ConfigExportError"]

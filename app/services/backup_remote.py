@@ -197,24 +197,29 @@ class _FtpRemote:
         try:
             with open(local, "rb") as f:
                 self.ftp.storbinary(f"STOR {tmp}", f)
+            # Checked before the rename: a short file must never carry a
+            # final name, where it would pass for a good backup.
+            try:
+                self.ftp.voidcmd("TYPE I")
+                size = self.ftp.size(tmp)
+            except (OSError, ftplib.Error) as exc:
+                raise BackupError("backup.verify_failed", "The uploaded file couldn't be checked.",
+                                  detail=_short(exc)) from exc
+            if size != local.stat().st_size:
+                raise BackupError("backup.verify_failed", "The uploaded file has the wrong size.",
+                                  detail=f"{size} != {local.stat().st_size}")
             self.ftp.rename(tmp, name)
-        except (OSError, ftplib.Error, EOFError) as exc:
+        except (OSError, ftplib.Error, EOFError, BackupError) as exc:
             try:
                 self.ftp.delete(tmp)  # no half-written bundle left behind
             except (OSError, ftplib.Error, EOFError):
                 pass
+            if isinstance(exc, BackupError):
+                raise
             if isinstance(exc, ftplib.error_perm) and str(exc).startswith("550"):
                 raise BackupError("backup.access_denied", "This account can't write to that folder.",
                                   detail=_short(exc)) from exc
             raise BackupError("backup.upload_failed", "The upload failed.", detail=_short(exc)) from exc
-        try:
-            self.ftp.voidcmd("TYPE I")
-            size = self.ftp.size(name)
-        except (OSError, ftplib.Error) as exc:
-            raise BackupError("backup.verify_failed", "The uploaded file couldn't be checked.", detail=_short(exc)) from exc
-        if size != local.stat().st_size:
-            raise BackupError("backup.verify_failed", "The uploaded file has the wrong size.",
-                              detail=f"{size} != {local.stat().st_size}")
 
     def list(self) -> list[str]:
         return [n.rsplit("/", 1)[-1] for n in self.ftp.nlst()]
@@ -324,17 +329,19 @@ class _SmbRemote:
             with open(local, "rb") as src, self.smb.open_file(tmp, mode="wb", **self.kw) as dst:
                 while chunk := src.read(1024 * 1024):
                     dst.write(chunk)
+            size = self.smb.stat(tmp, **self.kw).st_size  # before the rename, as for FTP
+            if size != local.stat().st_size:
+                raise BackupError("backup.verify_failed", "The uploaded file has the wrong size.",
+                                  detail=f"{size} != {local.stat().st_size}")
             self.smb.rename(tmp, self._path(name), **self.kw)
-            size = self.smb.stat(self._path(name), **self.kw).st_size
         except Exception as exc:
             try:
                 self.smb.remove(tmp, **self.kw)  # no half-written bundle left behind
             except Exception:  # noqa: BLE001 — the connection may be gone
                 pass
+            if isinstance(exc, BackupError):
+                raise
             raise _smb_error(exc) from exc
-        if size != local.stat().st_size:
-            raise BackupError("backup.verify_failed", "The uploaded file has the wrong size.",
-                              detail=f"{size} != {local.stat().st_size}")
 
     def list(self) -> list[str]:
         return list(self.smb.listdir(self.base, **self.kw))

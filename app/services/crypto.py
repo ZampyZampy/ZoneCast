@@ -10,6 +10,9 @@ included whenever the app's data is backed up/exported (see
 services/bundle.py, which bundles it alongside the DB for exactly this
 reason).
 """
+import logging
+import os
+
 from cryptography.fernet import Fernet, InvalidToken
 
 from ..config import settings
@@ -22,11 +25,15 @@ def _load_or_create_key() -> bytes:
     if key_path.exists():
         return key_path.read_bytes().strip()
     key = Fernet.generate_key()
-    key_path.write_bytes(key)
-    try:
-        key_path.chmod(0o600)
-    except OSError:
-        pass  # not supported on this filesystem (e.g. some Windows setups) — non-fatal
+    # Written whole or not at all: a key truncated by a crash would make
+    # every stored password unreadable.
+    tmp = key_path.with_name(key_path.name + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as fh:
+        fh.write(key)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, key_path)
     return key
 
 
@@ -68,4 +75,6 @@ def decrypt_str(value: str) -> str:
     except (InvalidToken, ValueError):
         # Value predates encryption (plaintext, from before this feature
         # or an unmigrated row) — return as-is rather than losing it.
+        if value.startswith("gAAAAA"):  # but this one is a Fernet token: wrong or damaged secret.key
+            logging.getLogger("zonecast.crypto").error("Un valore cifrato non si decifra con data/secret.key")
         return value

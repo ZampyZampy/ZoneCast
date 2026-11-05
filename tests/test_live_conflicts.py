@@ -275,3 +275,80 @@ def test_upcoming_bells_only_list_those_that_really_play_and_say_if_they_wait(si
         db.query(Schedule).filter(Schedule.name.in_(["soon", "late", "over"])).delete(synchronize_session=False)
         db.commit()
         db.close()
+
+
+def test_a_bell_due_while_the_service_was_down_is_started_late_once(site, monkeypatch):
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+    from app.timeutil import utcnow
+
+    monkeypatch.setattr(scheduler_service, "_scheduler", AsyncIOScheduler())  # never started: nothing plays
+    due = datetime.now(ZoneInfo(scheduler_service.scheduler_timezone())) - timedelta(seconds=60)
+    db = SessionLocal()
+    try:
+        bell = Schedule(name="bell-during-restart", media_id=site["media"], target_type=TargetType.speaker,
+                        target_id=site["S"], time_of_day=dtime(due.hour, due.minute, due.second),
+                        days_of_week="mon,tue,wed,thu,fri,sat,sun")
+        db.add(bell)
+        db.commit()
+        scheduler_service.add_or_update_job(bell)
+        bell_id = bell.id
+    finally:
+        db.close()
+    engine = scheduler_service.get_scheduler()
+
+    scheduler_service._catch_up_missed_runs()
+    assert engine.get_job(f"catch-up-{bell_id}") is not None
+
+    engine.remove_job(f"catch-up-{bell_id}")
+    db = SessionLocal()
+    try:  # it had already played before the restart
+        db.add(PlaybackLog(media_id=site["media"], target_type=TargetType.speaker, target_id=site["S"],
+                           target_label="", source=PlaybackSource.schedule, schedule_id=bell_id,
+                           started_at=utcnow(), status=PlaybackStatus.completed))
+        db.commit()
+    finally:
+        db.close()
+    scheduler_service._catch_up_missed_runs()
+    assert engine.get_job(f"catch-up-{bell_id}") is None
+
+
+def test_a_bell_disabled_while_waiting_for_a_live_announcement_does_not_play(site, fake_stream, monkeypatch):
+    monkeypatch.setattr(scheduler_service, "LIVE_WAIT_SECONDS", 3)
+    fake_stream["239.253.70.1"] = 0.5
+    db = SessionLocal()
+    try:
+        bell = Schedule(name="bell-disabled-while-waiting", media_id=site["media"], target_type=TargetType.zone,
+                        target_id=site["B"], time_of_day=dtime(8, 0), days_of_week="mon,tue,wed,thu,fri,sat,sun")
+        db.add(bell)
+        db.commit()
+        bell_id = bell.id
+    finally:
+        db.close()
+
+    async def scenario():
+        db = SessionLocal()
+        try:
+            await player.play(db, site["media"], TargetType.zone, site["A"])
+        finally:
+            db.close()
+        run = asyncio.create_task(scheduler_service._run_schedule(bell_id))
+        await asyncio.sleep(0.1)
+        db = SessionLocal()
+        try:
+            db.get(Schedule, bell_id).enabled = False
+            db.commit()
+        finally:
+            db.close()
+        await run
+        await player.stop_all()
+
+    asyncio.run(scenario())
+    db = SessionLocal()
+    try:
+        assert db.query(PlaybackLog).filter(PlaybackLog.schedule_id == bell_id).count() == 0
+    finally:
+        db.close()

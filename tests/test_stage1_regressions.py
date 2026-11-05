@@ -51,7 +51,7 @@ def test_failed_migration_leaves_no_half_applied_schema(tmp_path, monkeypatch):
 def test_maintenance_tools_use_migrations_not_create_all():
     from pathlib import Path
     root = Path(__file__).resolve().parent.parent
-    for tool in (root / "app/tools/seed_sample_media.py", root / "scripts/reset_admin_password.py"):
+    for tool in (root / "app/tools/seed_sample_media.py", root / "app/tools/reset_admin_password.py"):
         source = tool.read_text(encoding="utf-8")
         assert "create_all" not in source and "run_migrations()" in source, tool
 

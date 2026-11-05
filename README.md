@@ -119,7 +119,7 @@ scroll sideways when needed, and action buttons shrink to icons.
 ```
 
 **Stack**
-- **Backend**: Python 3.11 + FastAPI (async, great for orchestrating network I/O and the scheduler) + SQLAlchemy 2.0 + APScheduler.
+- **Backend**: Python 3.11 + FastAPI (async, great for orchestrating network I/O and the scheduler) + SQLAlchemy 2.x + APScheduler.
 - **Frontend**: HTML/Bootstrap 5 + vanilla JavaScript (no build step, a single container to deploy, an SPA-like dashboard using `fetch()`).
 - **Database**: SQLite by default (`data/zonecast.db`), portable and sufficient for this data volume; the connection string is configurable, so switching to PostgreSQL is just a `DATABASE_URL` change.
 - **Authentication**: server-side sessions (a cookie signed via `SessionMiddleware`), passwords hashed with bcrypt.
@@ -313,7 +313,7 @@ creating a new admin user and disabling/deleting the default one, or
 with:
 
 ```bash
-python scripts/reset_admin_password.py admin "YourNewSecurePassword!"
+python -m app.tools.reset_admin_password admin "YourNewSecurePassword!"
 ```
 
 ## 5. Docker deployment

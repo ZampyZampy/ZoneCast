@@ -9,7 +9,7 @@ of future dates.
 """
 import asyncio
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -21,7 +21,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from ..config import settings
 from ..database import SessionLocal
-from ..models import Schedule, PlaybackSource, Speaker
+from ..models import PlaybackLog, PlaybackSource, Schedule, Speaker
 from . import calendars, player, event_log, multicast_provisioning, speaker_status
 from .app_settings import get_settings
 
@@ -32,6 +32,9 @@ _scheduler: AsyncIOScheduler | None = None
 # A bell due during a live announcement on some of the same speakers waits
 # for it to end (up to this long) rather than cutting in or being lost.
 LIVE_WAIT_SECONDS = 60
+
+# How late a bell may still start (service busy, or down across its time).
+MISFIRE_GRACE_SECONDS = 300
 
 # One country per supported UI language (app/static/js/i18n.js), plus a
 # couple of common extras for "English" since it doesn't map to a single
@@ -182,7 +185,13 @@ async def _run_schedule(schedule_id: int):
         # The cron trigger fires in scheduler_timezone(), which can differ
         # from the host/container clock — judge the date range, holidays
         # and custom dates on that same calendar day.
-        day = fire_date(sched.time_of_day, datetime.now(ZoneInfo(scheduler_timezone())))
+        now = datetime.now(ZoneInfo(scheduler_timezone()))
+        # When the clocks go back, a time in the repeated hour fires twice:
+        # play only the first one.
+        if now.fold:
+            logger.info("Schedule %s skipped: repeated hour after the DST change", schedule_id)
+            return
+        day = fire_date(sched.time_of_day, now)
         reason = skip_reason(sched, day, calendars.schedule_rules(db, sched.id))
         if reason:
             logger.info("Schedule %s skipped on %s: %s", schedule_id, day, reason)
@@ -216,6 +225,11 @@ async def _run_schedule(schedule_id: int):
                     if remaining <= 0:
                         raise busy
                     await player.wait_for(busy.params.get("log_ids", []), timeout=remaining)
+                    # It may have been disabled or deleted while waiting.
+                    db.expire_all()
+                    if not (current := db.get(Schedule, schedule_id)) or not current.enabled:
+                        logger.info("Schedulazione %s disattivata durante l'attesa: non eseguita", schedule_id)
+                        return
                     try:
                         await start()
                         break
@@ -274,7 +288,7 @@ def add_or_update_job(schedule: Schedule):
         id=job_id,
         args=[schedule.id],
         replace_existing=True,
-        misfire_grace_time=300,
+        misfire_grace_time=MISFIRE_GRACE_SECONDS,
     )
 
 
@@ -296,6 +310,32 @@ def load_all_schedules():
             except Exception:
                 logger.exception("Schedulazione %s (%s) non caricata: configurazione non valida", sched.id, sched.name)
         logger.info("Loaded %d active schedules", len([j for j in get_scheduler().get_jobs() if j.id.startswith("schedule-")]))
+    finally:
+        db.close()
+
+
+def _catch_up_missed_runs() -> None:
+    """A bell due while the service was down (restart, crash, reboot) had
+    no job yet, so APScheduler never reports it missed: start it late,
+    within the same grace a busy service gets, unless it already ran."""
+    sched_engine = get_scheduler()
+    now = datetime.now(ZoneInfo(scheduler_timezone()))
+    db = SessionLocal()
+    try:
+        for job in sched_engine.get_jobs():
+            if not job.id.startswith("schedule-"):
+                continue
+            due = job.trigger.get_next_fire_time(None, now - timedelta(seconds=MISFIRE_GRACE_SECONDS))
+            if due is None or due >= now:
+                continue
+            schedule_id = job.args[0]
+            since = due.astimezone(timezone.utc).replace(tzinfo=None)  # started_at is naive UTC
+            if db.query(PlaybackLog.id).filter(PlaybackLog.schedule_id == schedule_id,
+                                               PlaybackLog.started_at >= since).first():
+                continue
+            logger.warning("Schedulazione %s non eseguita alle %s (servizio fermo): la eseguo ora", schedule_id, due)
+            sched_engine.add_job(_run_schedule, args=[schedule_id], id=f"catch-up-{schedule_id}",
+                                 replace_existing=True, misfire_grace_time=MISFIRE_GRACE_SECONDS)
     finally:
         db.close()
 
@@ -366,6 +406,7 @@ def start():
             next_run_time=datetime.now(ZoneInfo(scheduler_timezone())),  # also run once immediately at startup
         )
         sched_engine.add_listener(_on_job_missed, EVENT_JOB_MISSED)
+        _catch_up_missed_runs()
         sched_engine.start()
 
 

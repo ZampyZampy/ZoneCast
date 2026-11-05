@@ -10,6 +10,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .config import settings, BASE_DIR, require_writable_dirs, session_secret
 from .database import SessionLocal, get_db
+from .deps import session_user
 from .migrate import run_migrations
 from . import errors
 from .models import User, UserRole
@@ -154,22 +155,9 @@ def _page_context(db) -> dict:
     }
 
 
-def _session_user(request: Request, db) -> User | None:
-    """The signed-in, still active user — or None, clearing a session left
-    behind by a deleted or deactivated account: / and /login would
-    otherwise redirect to each other until the cookie expires."""
-    user_id = request.session.get("user_id")
-    if not user_id:
-        return None
-    user = db.query(User).filter(User.id == user_id, User.is_active.is_(True)).first()
-    if not user:
-        request.session.clear()
-    return user
-
-
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, db=Depends(get_db)):
-    user = _session_user(request, db)
+    user = session_user(request, db)
     if not user:
         return RedirectResponse(url="/login")
     # Admin-only panels aren't sent to operators at all: nothing to hide
@@ -184,7 +172,7 @@ def index(request: Request, db=Depends(get_db)):
 
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, db=Depends(get_db)):
-    if _session_user(request, db):
+    if session_user(request, db):
         return RedirectResponse(url="/")
     return templates.TemplateResponse(request, "login.html", _page_context(db))
 

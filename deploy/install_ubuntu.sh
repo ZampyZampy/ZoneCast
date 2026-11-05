@@ -57,7 +57,11 @@ if [[ ! -f "$INSTALL_DIR/.env" ]]; then
     cp "$REPO_DIR/.env.example" "$INSTALL_DIR/.env"
     SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
     sed -i "s/^SECRET_KEY=.*/SECRET_KEY=$SECRET/" "$INSTALL_DIR/.env"
-    echo "Creato $INSTALL_DIR/.env con una nuova SECRET_KEY generata — rivedilo (password admin, DATABASE_URL, ecc.) prima del primo avvio."
+    # Never the example's admin/admin on a box reachable from the LAN.
+    ADMIN_PASSWORD=$(python3 -c "import secrets; print(secrets.token_urlsafe(12))")
+    sed -i "s/^DEFAULT_ADMIN_PASSWORD=.*/DEFAULT_ADMIN_PASSWORD=$ADMIN_PASSWORD/" "$INSTALL_DIR/.env"
+    echo "Creato $INSTALL_DIR/.env con una nuova SECRET_KEY generata — rivedilo (DATABASE_URL, ecc.) prima del primo avvio."
+    echo "Password iniziale dell'utente admin (annotala, poi cambiala dal pannello): $ADMIN_PASSWORD"
 fi
 
 echo "== Ambiente virtuale Python =="

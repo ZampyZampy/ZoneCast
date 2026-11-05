@@ -103,6 +103,12 @@ def update_speaker(
     # The form always sends every field: compare values, or any edit (a
     # typo in 'location') would trigger a full rewrite of the device.
     really_changed = {k for k, v in changed_fields.items() if getattr(speaker, k) != v}
+    # Moving a device's address triggers a login with its stored password:
+    # without re-entering it, anyone allowed to edit speakers could point it
+    # at their own machine and capture that login.
+    if speaker.http_password and {"ip_address", "http_port"} & really_changed and not changed_fields.get("http_password"):
+        raise AppError(400, "speakers.password_required",
+                       "Re-enter the device password when changing its IP address or port.")
     for k, v in changed_fields.items():
         setattr(speaker, k, v)
     limit = multicast_provisioning.max_zones(speaker)

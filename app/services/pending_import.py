@@ -90,8 +90,13 @@ def _backup_current() -> None:
     for d, label in ((settings.media_dir, "media"), (settings.backups_dir, "backups")):
         # A bundle without audio files (automatic backups can leave them
         # out) must not take away the ones the restored schedules use.
+        # Contents only, into data/: the folder's parent (/opt/zonecast)
+        # is root-owned, so renaming the folder itself would fail.
         if staged[label] and d.exists() and any(d.iterdir()):
-            shutil.move(str(d), str(d.with_name(f"{label}.pre-import-{ts}")))
+            aside = settings.data_dir / f"{label}.pre-import-{ts}"
+            aside.mkdir(parents=True)
+            for item in d.iterdir():
+                shutil.move(str(item), str(aside / item.name))
 
 
 def apply_pending_import() -> None:

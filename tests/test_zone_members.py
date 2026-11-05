@@ -267,6 +267,28 @@ def test_a_bundle_without_audio_files_keeps_the_current_ones(tmp_path, monkeypat
     assert (media / "bell.pcm8k.wav").exists()
 
 
+def test_imported_audio_files_set_the_current_ones_aside_in_data(tmp_path, monkeypatch):
+    from app.config import settings
+    from app.services import pending_import
+
+    staging = tmp_path / "staging"
+    (staging / "media").mkdir(parents=True)
+    (staging / "media" / "new.pcm8k.wav").write_bytes(b"RIFF new")
+    media = tmp_path / "media"
+    media.mkdir()
+    (media / "old.pcm8k.wav").write_bytes(b"RIFF old")
+    monkeypatch.setattr(pending_import, "STAGING_DIR", staging)
+    monkeypatch.setattr(settings, "media_dir", media)
+    monkeypatch.setattr(settings, "backups_dir", tmp_path / "backups")
+    monkeypatch.setattr(settings, "database_url", f"sqlite:///{(tmp_path / 'none.db').as_posix()}")
+    monkeypatch.setattr(settings, "data_dir", tmp_path / "data")
+    pending_import.apply_pending_import()
+    assert [p.name for p in media.iterdir()] == ["new.pcm8k.wav"]
+    # Nothing may be created next to media/: on a native install that's the root-owned /opt/zonecast.
+    assert {p.name for p in tmp_path.iterdir()} == {"media", "data"}
+    assert [p.name for p in (tmp_path / "data").glob("media.pre-import-*/*")] == ["old.pcm8k.wav"]
+
+
 def test_a_database_from_a_newer_version_is_refused_without_rotating_the_rollback_copy(tmp_path, monkeypatch):
     from app import migrate
 

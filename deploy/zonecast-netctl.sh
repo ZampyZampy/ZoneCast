@@ -109,6 +109,28 @@ case "${1:-}" in
     # otherwise a bad first IP would revert to no address at all rather
     # than back to the pre-ZoneCast config, defeating the whole point of
     # the watchdog.
+    # One trial at a time: a second apply would overwrite the backup with
+    # the unconfirmed config, and the first watchdog would revert to it.
+    # APPLY_TIME_MARKER lives in /run, so a reboot (which also kills the
+    # watchdog) clears it.
+    if [[ -f "$APPLY_TIME_MARKER" && ! -f "$CONFIRM_MARKER" ]]; then
+        echo "modifica di rete già in attesa di conferma" >&2
+        exit 1
+    fi
+
+    # Validated in a scratch root before touching /etc/netplan: if netplan
+    # rejected it after the swap, set -e would exit before the watchdog
+    # starts, leaving a config that boots with no network.
+    CANDIDATE_ROOT=$(mktemp -d)
+    trap 'rm -rf "$CANDIDATE_ROOT"' EXIT
+    mkdir -p "$CANDIDATE_ROOT/etc/netplan"
+    cat > "$CANDIDATE_ROOT/etc/netplan/90-zonecast.yaml"
+    chmod 600 "$CANDIDATE_ROOT/etc/netplan/90-zonecast.yaml"
+    if ! netplan generate --root-dir "$CANDIDATE_ROOT" >&2; then
+        echo "configurazione di rete rifiutata da netplan" >&2
+        exit 1
+    fi
+
     FIRST_APPLY=0
     DISABLED_SIBLINGS_MARKER="/run/zonecast-net-disabled-siblings"
     if [[ ! -f "$NETPLAN_FILE" ]]; then
@@ -127,7 +149,7 @@ case "${1:-}" in
     else
         rm -f "$BACKUP_FILE"   # no previous managed config to fall back to
     fi
-    cat > "$NETPLAN_FILE"
+    cp "$CANDIDATE_ROOT/etc/netplan/90-zonecast.yaml" "$NETPLAN_FILE"
     chmod 600 "$NETPLAN_FILE"
     date +%s > "$APPLY_TIME_MARKER"   # lets net-pending report accurate remaining time to ANY session, not just the one that clicked Apply
     netplan apply

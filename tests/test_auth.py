@@ -155,3 +155,57 @@ def test_session_renewal_is_throttled(client, monkeypatch):
     assert "set-cookie" not in client.get("/api/auth/me").headers  # not on every request
     clock[0] += 31
     assert "set-cookie" in client.get("/api/auth/me").headers
+
+
+def test_a_password_reset_ends_the_users_other_sessions(admin_client):
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    res = admin_client.post("/api/auth/users", json={"username": "rubato", "password": "password-lunga-1", "role": "operator"})
+    uid = res.json()["id"]
+    with TestClient(app) as thief:
+        assert thief.post("/api/auth/login", json={"username": "rubato", "password": "password-lunga-1"}).status_code == 200
+        assert thief.get("/api/auth/me").status_code == 200
+        assert admin_client.put(f"/api/auth/users/{uid}", json={"new_password": "password-nuova-2"}).status_code == 200
+        assert thief.get("/api/auth/me").status_code == 401
+        # Changing your own password keeps the session you changed it from.
+        assert thief.post("/api/auth/login", json={"username": "rubato", "password": "password-nuova-2"}).status_code == 200
+        assert thief.post("/api/auth/me/password", json={"current_password": "password-nuova-2",
+                                                         "new_password": "password-nuova-3"}).status_code == 200
+        assert thief.get("/api/auth/me").status_code == 200
+    admin_client.delete(f"/api/auth/users/{uid}")
+
+
+def test_a_recovery_code_signs_in_once(admin_client):
+    from fastapi.testclient import TestClient
+    from app.database import SessionLocal
+    from app.main import app
+    from app.models import User
+    from app.services import totp_2fa
+
+    uid = admin_client.post("/api/auth/users", json={"username": "conduefa", "password": "password-lunga-1",
+                                                     "role": "operator"}).json()["id"]
+    codes, stored = totp_2fa.generate_recovery_codes()
+    db = SessionLocal()
+    try:
+        user = db.get(User, uid)
+        user.totp_secret, user.totp_enabled, user.totp_recovery_codes = totp_2fa.generate_secret(), True, stored
+        db.commit()
+    finally:
+        db.close()
+
+    def sign_in(c):
+        assert c.post("/api/auth/login", json={"username": "conduefa", "password": "password-lunga-1"}).json()["requires_2fa"]
+        return c.post("/api/auth/login/2fa", json={"code": codes[0]})
+
+    with TestClient(app) as c:
+        assert sign_in(c).status_code == 200
+        assert c.get("/api/auth/me").status_code == 200
+    with TestClient(app) as c:
+        assert sign_in(c).status_code == 401  # already used
+    db = SessionLocal()
+    try:
+        assert totp_2fa.remaining_recovery_codes(db.get(User, uid).totp_recovery_codes) == len(codes) - 1
+    finally:
+        db.close()
+    admin_client.delete(f"/api/auth/users/{uid}")

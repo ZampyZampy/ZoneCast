@@ -5,7 +5,6 @@ const showHooks = {};
 const hideHooks = {};
 let current = 'play';
 
-export const currentTab = () => current;
 export const onTabShown = (tab, fn) => { (showHooks[tab] ||= []).push(fn); };
 export const onTabHidden = (tab, fn) => { (hideHooks[tab] ||= []).push(fn); };
 

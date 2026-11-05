@@ -54,3 +54,21 @@ def test_delete_speaker_detaches_backups_instead_of_failing(admin_client):
 
     res = admin_client.get("/api/speakers")
     assert all(s["id"] != speaker_id for s in res.json())
+
+
+def test_moving_speaker_requires_its_password(admin_client):
+    """A new IP/port triggers a login with the stored password: it must
+    be re-entered, or the password goes to whatever host was typed in."""
+    res = admin_client.post("/api/speakers", json=_speaker_payload(
+        ip_address="10.0.0.70", own_multicast_address="239.5.5.20", http_password="secret"))
+    assert res.status_code == 200, res.text
+    sid = res.json()["id"]
+
+    res = admin_client.put(f"/api/speakers/{sid}", json={"ip_address": "10.0.0.71"})
+    assert res.status_code == 400
+    assert res.json()["detail"]["code"] == "speakers.password_required"
+    assert admin_client.put(f"/api/speakers/{sid}", json={"http_port": 8080}).status_code == 400
+
+    assert admin_client.put(f"/api/speakers/{sid}", json={"location": "Hall"}).status_code == 200
+    res = admin_client.put(f"/api/speakers/{sid}", json={"ip_address": "10.0.0.71", "http_password": "secret"})
+    assert res.status_code == 200, res.text

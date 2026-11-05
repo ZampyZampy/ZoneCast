@@ -4,7 +4,7 @@ APP_VERSION and add a CHANGELOG entry whenever a user-visible change
 ships — this is the only place either needs updating.
 """
 
-APP_VERSION = "1.6.3"
+APP_VERSION = "1.6.4"
 
 # Newest first. Each entry: version, date (YYYY-MM-DD), list of
 # one-line change descriptions. English, matching the UI's default
@@ -12,6 +12,26 @@ APP_VERSION = "1.6.3"
 # through app/static/js/i18n.js, so non-English viewers see it in
 # English regardless of their selected language.
 CHANGELOG = [
+    {
+        "version": "1.6.4",
+        "date": "2026-11-05",
+        "changes": [
+            "Restoring an imported configuration on a native install no longer leaves the service failing at every start when the server already had audio files: the previous files are now set aside in data/",
+            "A network address without its prefix (e.g. /24) is refused, and a configuration the system rejects is no longer applied: before, the server could come back from a reboot with no network",
+            "A second network change while the first still awaits confirmation is refused, so the automatic revert always goes back to the last confirmed settings",
+            "A bell due while the service was restarting (update, reboot) now plays as soon as it is back, up to 5 minutes late, instead of being lost without a trace",
+            "When the clocks go back, a bell set in the repeated hour plays once instead of twice",
+            "A bell waiting for a live announcement to end no longer plays if its schedule is disabled or deleted in the meantime",
+            "Changing or resetting a user's password signs that user out everywhere else; the session the change was made from stays signed in",
+            "Changing a speaker's IP address or port now requires its device password again, so the stored password can't be sent to another host",
+            "The installer generates a random initial admin password instead of leaving admin/admin, and prints it once",
+            "The admin password reset tool is now installed with the app: python -m app.tools.reset_admin_password",
+            "Amplify works for audio files uploaded without a usable extension, and a failed amplification can no longer amplify the same file twice",
+            "Automatic backup: a copy of the wrong size at an FTP server or SMB share is deleted instead of being kept under its final name",
+            "Refresh in the playback history now reports when the server can't be reached; small display fixes in the backup lists",
+            "Dependency updates (SQLAlchemy 2.1, FastAPI 0.147)",
+        ],
+    },
     {
         "version": "1.6.3",
         "date": "2026-09-30",

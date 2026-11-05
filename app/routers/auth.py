@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..errors import AppError
-from ..deps import get_current_user, require_admin
+from ..deps import get_current_user, require_admin, sign_in
 from ..models import User, UserRole
 from ..schemas import (
     LoginRequest, LoginResult, TwoFactorLoginRequest, UserOut, UserCreate, UserUpdate,
@@ -51,7 +51,7 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         return LoginResult(requires_2fa=True)
 
     logger.info("Login riuscito: utente '%s' da %s", user.username, client_ip)
-    request.session["user_id"] = user.id
+    sign_in(request, user)
     return LoginResult(requires_2fa=False, user=user)
 
 
@@ -87,7 +87,7 @@ def login_2fa(payload: TwoFactorLoginRequest, request: Request, db: Session = De
             raise AppError(status.HTTP_401_UNAUTHORIZED, "auth.invalid_code", "Invalid code.")
 
     request.session.clear()
-    request.session["user_id"] = user.id
+    sign_in(request, user)
     logger.info("Login riuscito (2FA): utente '%s' da %s", user.username, client_ip)
     return user
 
@@ -111,6 +111,7 @@ def _check_password_strength(password: str) -> None:
 @router.post("/me/password")
 def change_my_password(
     payload: ChangePasswordRequest,
+    request: Request,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -119,6 +120,7 @@ def change_my_password(
     _check_password_strength(payload.new_password)
     user.password_hash = hash_password(payload.new_password)
     db.commit()
+    sign_in(request, user)  # this session stays signed in, the others end
     return {"ok": True}
 
 

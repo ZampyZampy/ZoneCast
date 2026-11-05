@@ -55,7 +55,7 @@ export function openBackups(speakerId) {
     $('backups-speaker-id').value = speakerId;
     $('backups-speaker-name').textContent = s ? s.name : '';
     speakerBackups = [];
-    renderSpeakerBackups();
+    $('backups-body').innerHTML = '';  // not "no backups" before the list has arrived
     modal('backups-modal').show();
     run(() => loadSpeakerBackups(speakerId));
 }

@@ -14,9 +14,7 @@ Confirmed against a real Fanvil A233 (firmware 2.12.58.24, web server
   `/default_user_config.txt` after calling it with both guessed keys
   (`paging.multicast_addr.1`) and the real internal ones (`MCAST1
   Host`), neither persisted. Do not trust this endpoint's response
-  body as confirmation of anything. It's kept below only as a
-  best-effort escape hatch for other CGI actions you may verify
-  yourself; multicast paging no longer uses it.
+  body as confirmation of anything; ZoneCast doesn't use it.
 
 - **The real mechanism** for multicast paging is the same HTML form
   the device's own web UI submits: `POST /mcast.htm`, fields named
@@ -68,7 +66,6 @@ Confirmed against a real Fanvil A233 (firmware 2.12.58.24, web server
   `push_mcast_listening` deliberately does the minimum number of
   requests: one login, one read, one write, one read-back to verify.
 """
-import asyncio
 import hashlib
 import logging
 import re
@@ -81,49 +78,7 @@ from .base import ConfigExportError, PagingEntry, PushResult
 
 logger = logging.getLogger("zonecast.drivers.fanvil")
 
-_RETRY_ATTEMPTS = 3
-_RETRY_DELAY_SECONDS = 0.5
 _MCAST_SLOTS = 20
-
-
-async def check_reachable(speaker: Speaker, timeout: float = 2.0) -> bool:
-    """Best-effort liveness check: HTTP(S) reachability of the device's
-    admin web UI on http_port. Does not require valid credentials."""
-    url = f"http://{speaker.ip_address}:{speaker.http_port}/"
-    try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.get(url)
-            return resp.status_code < 500
-    except httpx.HTTPError:
-        return False
-
-
-async def trigger_action_url(speaker: Speaker, action: str, params: dict, timeout: float = 5.0) -> bool:
-    """Generic best-effort CGI trigger (HTTP Basic auth). Confirmed to
-    be a no-op for MCAST_* keys (see module docstring) — kept for other
-    CGI actions you may verify independently for your firmware."""
-    url = f"http://{speaker.ip_address}:{speaker.http_port}/cgi-bin/{action}"
-    auth = httpx.BasicAuth(speaker.http_username, speaker.http_password) if speaker.http_password else None
-
-    last_error = ""
-    for attempt in range(1, _RETRY_ATTEMPTS + 1):
-        try:
-            async with httpx.AsyncClient(timeout=timeout, auth=auth) as client:
-                resp = await client.get(url, params=params)
-            if resp.status_code < 400 and "success" in resp.text.lower():
-                return True
-            last_error = f"HTTP {resp.status_code} — {resp.text[:200]}"
-        except httpx.HTTPError as exc:
-            last_error = f"{type(exc).__name__}: {exc}"
-
-        if attempt < _RETRY_ATTEMPTS:
-            await asyncio.sleep(_RETRY_DELAY_SECONDS)
-
-    logger.warning(
-        "CGI call to %s (%s, key=%s) failed after %d attempt(s): %s",
-        speaker.ip_address, action, params.get("key", "?"), _RETRY_ATTEMPTS, last_error,
-    )
-    return False
 
 
 async def export_config(speaker: Speaker, fmt: str = "txt", timeout: float = 10.0) -> str:
@@ -153,13 +108,6 @@ async def export_config(speaker: Speaker, fmt: str = "txt", timeout: float = 10.
     if resp.status_code != 200:
         raise ConfigExportError(f"Il device ha risposto HTTP {resp.status_code}")
     return resp.text
-
-
-async def set_config_param(speaker: Speaker, key: str, value: str, timeout: float = 5.0) -> bool:
-    """Best-effort single CGI parameter write. NOT used for multicast
-    paging (confirmed no-op there, see module docstring) — kept for
-    other keys you may verify independently."""
-    return await trigger_action_url(speaker, action="ConfigManApp.com", params={"key": key, "value": value}, timeout=timeout)
 
 
 # ---------- Session login (nonce + MD5 challenge) ----------

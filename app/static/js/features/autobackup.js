@@ -94,7 +94,7 @@ function renderFiles(files) {
                 <button type="button" class="btn btn-sm btn-outline-danger" data-ab-delete="${esc(f.name)}" aria-label="${esc(t('action.delete'))}" title="${esc(t('action.delete'))}"><i class="bi bi-trash" aria-hidden="true"></i></button>
             </td>
         </tr>`;
-    }).join('') || `<tr><td class="text-muted">${esc(t('autobackup.noFiles'))}</td></tr>`;
+    }).join('') || `<tr><td colspan="3" class="text-muted">${esc(t('autobackup.noFiles'))}</td></tr>`;
 }
 
 export async function load() {

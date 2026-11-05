@@ -3,6 +3,14 @@
 
 export const $ = (id) => document.getElementById(id);
 
+// An element with its text set as text, never parsed as HTML.
+export function el(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+}
+
 // Every server-provided value that goes into an innerHTML template must
 // pass through esc(): names, filenames and descriptions are free text,
 // and log messages even quote usernames typed at the (unauthenticated)
