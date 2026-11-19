@@ -1,19 +1,19 @@
 # Direct runtime dependencies. requirements.txt is generated from this
 # file (every transitive package pinned, with hashes) — see CONTRIBUTING.md.
-fastapi==0.147.0
+fastapi==0.163.1
 uvicorn[standard]==0.54.0
-sqlalchemy==2.1.5
-pydantic==2.14.1
-pydantic-settings==2.16.0
-python-multipart==0.0.32
+sqlalchemy==2.1.8
+pydantic==2.14.3
+pydantic-settings==2.16.3
+python-multipart==0.0.34
 bcrypt==5.0.0
 cryptography==50.0.2
-pyotp==2.10.0
+pyotp==2.12.0
 qrcode==8.2
 itsdangerous==2.2.0
 apscheduler==3.11.3
-alembic==1.20.0
-holidays==0.106
+alembic==1.20.1
+holidays==0.108
 httpx==0.28.1
 jinja2==3.1.6
 # Scheduled backups to a Windows/NAS share (SMB2/3, pure Python).
